@@ -10,6 +10,15 @@ export PATH="$HOME/.local/bin:$PATH"
 # Correction automatique des commandes
 setopt CORRECT
 
+# Historique des commandes
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt SHARE_HISTORY       # partage l'historique entre sessions ouvertes
+setopt HIST_IGNORE_DUPS    # pas de doublons consécutifs
+setopt HIST_IGNORE_SPACE   # ignore les commandes commençant par un espace
+setopt APPEND_HISTORY      # ajoute au lieu d'écraser
+
 # Alias et fonctions perso
 source ~/.shell/alias
 source ~/.shell/motd
