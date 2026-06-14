@@ -32,15 +32,16 @@ truncation_length = 4
 truncate_to_repo = true
 style = "bold cyan"
 
-# Affiché uniquement si différent de l'utilisateur par défaut (ex: root via sudo)
+# Toujours affiché : utilisateur courant
 [username]
-show_always = false
+show_always = true
 style_user = "bold yellow"
+style_root = "bold red"
 format = "[$user]($style)@"
 
-# Affiché uniquement en SSH, pour savoir sur quelle machine on est
+# Toujours affiché : nom de la machine
 [hostname]
-ssh_only = true
+ssh_only = false
 style = "bold green"
 format = "[$hostname]($style) "
 
