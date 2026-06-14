@@ -1,0 +1,45 @@
+# Alias git complémentaires (en plus de ceux de .shell/alias : gco, gf, grh...).
+#
+# Ce fichier ne contient PAS ton identité (user.name/email) : il est pensé
+# pour être inclus depuis ton ~/.gitconfig existant, sans l'écraser.
+#
+# Ajoute ceci dans ~/.gitconfig :
+#
+#   [include]
+#       path = ~/dotfiles/git/aliases.gitconfig
+#
+# (adapte le chemin si tu clones le repo ailleurs)
+
+[alias]
+    st = status -sb
+    co = checkout
+    br = branch
+    cm = commit -m
+    amend = commit --amend --no-edit
+    last = log -1 HEAD --stat
+    lg = log --graph --oneline --decorate --all
+    unstage = restore --staged
+    aliases = config --get-regexp ^alias\\.
+
+[core]
+    editor = vim
+    pager = delta
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    line-numbers = true
+
+[merge]
+    conflictstyle = diff3
+
+[diff]
+    colorMoved = default
+
+[pull]
+    rebase = true
+
+[init]
+    defaultBranch = main

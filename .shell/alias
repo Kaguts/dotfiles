@@ -1,0 +1,169 @@
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#               Alias                    #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+
+# Alias de base
+alias log="sudo tail -f /var/log/messages"
+alias grep="grep --color=auto"
+alias igrep="grep -i"
+alias lh="ls -lh --color=auto"
+alias la="ls -a --color=auto"
+alias ..="cd .."
+alias up="sudo -i"
+alias addsrv="~/.shell/add_srv.sh"
+alias remotefile="~/.shell/remote_files.sh"
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#               Eza                      #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+alias ls='eza --all --long --group --group-directories-first --icons --header --time-style long-iso'
+alias ll='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
+alias lart='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#       Outils CLI modernes              #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+
+# Sur Debian, bat/fd sont installés sous batcat/fdfind pour éviter
+# un conflit de nom avec des paquets existants.
+command -v bat >/dev/null || alias bat='batcat'
+command -v fd >/dev/null || alias fd='fdfind'
+
+alias cat='bat --paging=never'
+alias top='btop'
+
+
+# Alias des serveurs pour une connexion rapide (fichier local, non versionné)
+[ -f ~/.shell/alias_srv ] && source ~/.shell/alias_srv
+
+# Alias du man
+alias man_alias="~/.shell/man_alias_all.sh"
+alias adocker="~/.shell/man_alias_docker.sh"
+alias asys="~/.shell/man_alias_sys.sh"
+alias agit="~/.shell/man_alias_git.sh"
+alias asysf="~/.shell/man_alias_sys_a.sh"
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#               Docker                   #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+
+# Alias Docker
+alias dstopa="docker stop \$(docker ps -a -q)"
+alias dstatus='docker ps --format "table{{.ID}}\t{{.Image}}\t{{.RunningFor}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}"'
+alias dstarta="docker start \$(docker ps -a -q)"               
+alias drm="docker rm \$(docker ps -a -q)"                     
+alias dcleanc="docker rm \$(docker ps -f status=exited -q)"  
+alias dcleani="docker rmi \$(docker images -f dangling=true -q)" 
+alias dlogs="docker logs -f"                                   
+alias dexec="docker exec -it"                                 
+alias dbuild="docker build -t"                               
+alias dip="docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'" 
+
+# Alias Docker Compose (plugin v2 : "docker compose", sans tiret)
+alias dcup="docker compose up -d"
+alias dcdown="docker compose down"
+alias dcrestart="docker compose restart"
+alias dclogs="docker compose logs -f"
+alias dcrebuild="docker compose up -d --build"
+alias dcls="docker compose ps"
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#               Git                       #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+alias gco='git checkout'
+alias gf='git fetch'
+alias grh='git reset --hard'
+alias gstash='git stash'
+alias gpop='git stash pop'
+alias gsl='git stash list'
+alias gplr='git pull --rebase'
+alias glast='git show --stat'
+alias gca='git commit --amend'
+alias girb='git rebase -i'
+alias gtags='git tag -l'
+alias gbd-remote='git push origin --delete'
+alias gsall='git status --short --branch'
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#       Alias pour le calendrier         #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+
+# View the calendar by typing the first three letters of the month.
+alias jan='cal -m 01'
+alias feb='cal -m 02'
+alias mar='cal -m 03'
+alias apr='cal -m 04'
+alias may='cal -m 05'
+alias jun='cal -m 06'
+alias jul='cal -m 07'
+alias aug='cal -m 08'
+alias sep='cal -m 09'
+alias oct='cal -m 10'
+alias nov='cal -m 11'
+alias dec='cal -m 12'
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#            Custom Functions            #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+
+# Recherche rapide dans l'historique
+h() {
+    history | grep "$1"
+}
+
+# Aller à un répertoire spécifique
+cdd() {
+    cd "$1" || echo "Le répertoire n'existe pas."
+}
+
+# Extraire automatiquement les fichiers
+extract() {
+    if [ -f "$1" ]; then
+        case "$1" in
+            *.tar.bz2)   tar xjf "$1"    ;;
+            *.tar.gz)    tar xzf "$1"    ;;
+            *.bz2)       bunzip2 "$1"    ;;
+            *.rar)       unrar x "$1"    ;;
+            *.gz)        gunzip "$1"     ;;
+            *.tar)       tar xvf "$1"    ;;
+            *.tbz2)      tar xjf "$1"    ;;
+            *.tgz)       tar xzf "$1"    ;;
+            *.zip)       unzip "$1"      ;;
+            *.Z)         uncompress "$1" ;;
+            *.7z)        7z x "$1"       ;;
+            *)           echo "Impossible d'extraire '$1'" ;;
+        esac
+    else
+        echo "'$1' n'est pas un fichier valide"
+    fi
+}
+
+# Rechercher un fichier par nom
+ff() {
+    find . -name "$1"
+}
+
+# Recherche d'un contenu dans les fichiers
+fstr() {
+    grep -rnw . -e "$1"
+}
+
+# Créer un répertoire et entrer dedans
+mkcd() {
+    mkdir -p "$1" && cd "$1"
+}
+
+# Remonter les processus les plus gourmands en mémoire
+topmem() {
+    ps aux --sort=-%mem | head -n 10
+}
+
+# Remonter les processus les plus gourmands en CPU
+topcpu() {
+    ps aux --sort=-%cpu | head -n 10
+}
+
+# Obtenir l'adresse IP locale
+myip() {
+    hostname -I | awk '{print $1}'
+}

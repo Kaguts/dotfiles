@@ -1,0 +1,37 @@
+shell = "zsh"
+
+# Utilitaire utilisé par d'autres plugins pour différer leur chargement
+[plugins.zsh-defer]
+github = "romkatv/zsh-defer"
+
+# Complétions supplémentaires : doivent être ajoutées au fpath AVANT compinit
+[plugins.zsh-completions]
+github = "zsh-users/zsh-completions"
+use = ["src"]
+apply = ["fpath"]
+
+# Initialise le système de complétion Zsh (requis par zsh-completions et fzf-tab)
+[plugins.compinit]
+inline = 'autoload -Uz compinit && compinit'
+
+# Doit être chargé APRÈS compinit, et avant autosuggestions/syntax-highlighting
+[plugins.fzf-tab]
+github = "Aloxaf/fzf-tab"
+
+[plugins.zsh-autosuggestions]
+github = "zsh-users/zsh-autosuggestions"
+use = ["{{ name }}.zsh"]
+
+# Doit être chargé en DERNIER parmi les plugins qui modifient des widgets zle
+[plugins.zsh-syntax-highlighting]
+github = "zsh-users/zsh-syntax-highlighting"
+use = ["{{ name }}.zsh"]
+
+[plugins.starship]
+inline = 'eval "$(starship init zsh)"'
+
+[plugins.zoxide]
+inline = 'eval "$(zoxide init zsh)"'
+
+[plugins.direnv]
+inline = 'eval "$(direnv hook zsh)"'

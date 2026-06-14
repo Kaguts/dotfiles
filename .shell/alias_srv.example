@@ -1,0 +1,9 @@
+# Alias de connexion SSH vers tes serveurs.
+#
+# Ce fichier est un modèle : copie-le en ~/.shell/alias_srv (non versionné,
+# voir .gitignore) et adapte-le. Il est automatiquement sourcé par
+# ~/.shell/alias si présent.
+
+# alias monserveur="ssh -i ~/.ssh/KEY/ma_cle utilisateur@1.2.3.4"
+# alias prod="ssh utilisateur@prod.example.com"
+# alias bastion="ssh -A utilisateur@bastion.example.com"

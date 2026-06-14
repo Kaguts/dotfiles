@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# Fonction pour générer la barre de progression
+print_bar() {
+    local used_percentage=$1
+    local total_blocks=10
+    local used_blocks=$((used_percentage * total_blocks / 100))
+    local empty_blocks=$((total_blocks - used_blocks))
+
+    bar="["
+    for ((i=0; i<used_blocks; i++)); do
+        bar+="|"
+    done
+    for ((i=0; i<empty_blocks; i++)); do
+        bar+="."
+    done
+    bar+="]"
+
+    echo "$bar"
+}
+
+# Séparateur
+separator="----------------------------------------"
+
+# Date et heure actuelles
+current_date=$(date +"%A, %d %B %Y, %H:%M:%S")
+
+# Nom du système
+hostname=$(hostname)
+
+# Version de l'OS
+os_version=$(lsb_release -ds 2>/dev/null || grep '^PRETTY_NAME' /etc/os-release | cut -d= -f2 | tr -d '"')
+
+# Temps de fonctionnement
+uptime=$(uptime -p)
+
+# Informations sur les utilisateurs connectés
+users=$(who | wc -l)
+
+# Charge du processeur
+load_avg=$(awk '{print $1, $2, $3}' /proc/loadavg)
+
+# Mémoire libre
+memory_free=$(free -h | awk '/^Mem:/ {print $4"/"$2}')
+
+# Interfaces réseau actives et leurs adresses IP
+network_info=$(ip -o -4 addr show | awk '$2 != "lo" {print "Interface: "$2", IP: "$4}')
+
+# Affichage du message MOTD
+
+# Zone 1 : Bienvenue
+echo -e "$separator"
+echo -e "🖥️  Bienvenue sur $hostname"
+echo -e "$separator"
+
+# Zone 2 : CPU + Mémoire
+echo -e "📊 Charge CPU (1, 5, 15 min) : $load_avg"
+echo -e "🧠 Mémoire : $memory_free"
+echo -e "$separator"
+
+# Zone 3 : Système, Date, Uptime, Utilisateurs connectés
+echo -e "📅 Date : $current_date"
+echo -e "🖥️  Système : $os_version"
+echo -e "⏱️  Temps de fonctionnement : $uptime"
+echo -e "👥 Utilisateurs connectés : $users"
+echo -e "$separator"
+
+# Zone 4 : Réseau
+echo -e "🌐 Réseau :"
+echo -e "$network_info"
+echo -e "$separator"
+
+# Zone 5 : Espace des disques
+echo -e "💽 Disques :"
+if command -v dysk >/dev/null 2>&1; then
+    dysk
+else
+    df -h -x tmpfs -x devtmpfs -x squashfs -x overlay --output=target,used,size,pcent 2>/dev/null \
+        | tail -n +2 \
+        | while read -r mount used size pcent; do
+            pct=$(echo "$pcent" | tr -d '%')
+            bar=$(print_bar "$pct")
+            printf "  %-20s %6s / %-6s %s %s\n" "$mount" "$used" "$size" "$bar" "$pcent"
+        done
+fi
+echo -e "$separator"
+
