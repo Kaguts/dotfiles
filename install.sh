@@ -13,11 +13,13 @@
 #     quand même.
 #
 # Usage :
-#   ./install.sh          # liens symboliques uniquement
-#   ./install.sh --update # recrée les liens symboliques (utile après avoir
-#                          # déplacé/renommé le dossier du repo) et nettoie
-#                          # les anciennes références dans ~/.gitconfig
-#   ./install.sh --tools  # liens symboliques + installation des outils
+#   ./install.sh            # liens symboliques uniquement
+#   ./install.sh --update   # recrée les liens symboliques (utile après avoir
+#                            # déplacé/renommé le dossier du repo) et nettoie
+#                            # les anciennes références dans ~/.gitconfig
+#   ./install.sh --tools    # liens symboliques + installation des outils
+#   ./install.sh --sysadmin # comme --update + --tools, sans les outils sécu
+#                            # (gobuster, nmap, lynis) ni SecLists
 
 set -euo pipefail
 
@@ -65,7 +67,7 @@ if command -v git >/dev/null 2>&1; then
         echo "Ajouté        : include.path = $GIT_ALIASES dans ~/.gitconfig"
     fi
 
-    if [ "${1:-}" = "--update" ]; then
+    if [ "${1:-}" = "--update" ] || [ "${1:-}" = "--sysadmin" ]; then
         # Nettoie les anciennes références include.path qui pointaient vers
         # un précédent emplacement du repo (dépôt déplacé/renommé)
         while IFS= read -r old_path; do
@@ -85,7 +87,7 @@ if [ -d "$BACKUP_DIR" ]; then
     echo "Anciens fichiers sauvegardés dans : $BACKUP_DIR"
 fi
 
-if [ "${1:-}" != "--tools" ]; then
+if [ "${1:-}" != "--tools" ] && [ "${1:-}" != "--sysadmin" ]; then
     echo
     if [ "${1:-}" = "--update" ]; then
         echo "Liens symboliques et configuration git mis à jour."
@@ -94,6 +96,9 @@ if [ "${1:-}" != "--tools" ]; then
     fi
     exit 0
 fi
+
+SKIP_SECURITY=0
+[ "${1:-}" = "--sysadmin" ] && SKIP_SECURITY=1
 
 # ---------------------------------------------------------------------------
 # Détection root / sudo et de la famille de distribution
@@ -142,9 +147,12 @@ else
             $SUDO apt update
             $SUDO apt install -y \
                 eza bat fd-find ripgrep fzf zoxide btop tmux \
-                lazygit lynis nmap httpie \
-                direnv ansible gobuster gping git-delta glow \
+                lazygit httpie \
+                direnv ansible gping git-delta glow \
                 vim xclip unzip   # xclip requis pour `set clipboard=unnamedplus` (.vimrc)
+            if [ "$SKIP_SECURITY" -eq 0 ]; then
+                $SUDO apt install -y lynis nmap gobuster
+            fi
             ;;
         rhel)
             echo
@@ -157,9 +165,13 @@ else
             # lazydocker, k9s, dive, tenv, rustscan, nuclei ne sont pas
             # packagés sur RHEL-like : ils sont installés en binaire plus bas.
             $SUDO "$PKG_MGR" install -y \
-                ripgrep fzf bat fd-find tmux btop nmap lynis httpie \
+                ripgrep fzf bat fd-find tmux btop httpie \
                 direnv vim-enhanced xclip git unzip \
                 || echo "  ! Certains paquets ci-dessus sont peut-être indisponibles selon ta version de RHEL"
+            if [ "$SKIP_SECURITY" -eq 0 ]; then
+                $SUDO "$PKG_MGR" install -y nmap lynis \
+                    || echo "  ! nmap/lynis indisponibles, à installer manuellement"
+            fi
 
             $SUDO "$PKG_MGR" install -y ansible-core 2>/dev/null \
                 || $SUDO "$PKG_MGR" install -y ansible \
@@ -248,7 +260,7 @@ echo "==> Installation des outils additionnels (binaires depuis GitHub releases,
 install_binary_release eza        eza-community/eza  "x86_64-unknown-linux-gnu.tar.gz"
 install_binary_release zoxide     ajeetdsouza/zoxide "x86_64-unknown-linux-musl.tar.gz"
 install_binary_release lazygit    jesseduffield/lazygit "_linux_x86_64.tar.gz"
-install_binary_release gobuster   OJ/gobuster        "Linux_x86_64.tar.gz"
+[ "$SKIP_SECURITY" -eq 0 ] && install_binary_release gobuster OJ/gobuster "Linux_x86_64.tar.gz"
 install_binary_release gping      orf/gping          "x86_64-unknown-linux-gnu.tar.gz"
 install_binary_release delta      dandavison/delta   "x86_64-unknown-linux-gnu.tar.gz"
 install_binary_release glow       charmbracelet/glow "Linux_x86_64.tar.gz"
@@ -264,15 +276,17 @@ echo
 echo "==> Pré-installation des plugins WezTerm (cache local, voir wezterm/README.md)"
 "$DOTFILES_DIR/wezterm/plugins.sh" || echo "  ! Certains plugins WezTerm n'ont pas pu être clonés (réseau/proxy git ?)"
 
-echo
-echo "==> SecLists (wordlists)"
-SECLISTS_DIR="$HOME/tools/SecLists"
-if [ ! -d "$SECLISTS_DIR" ]; then
-    echo "  -> clonage dans $SECLISTS_DIR (~1 Go, peut prendre du temps)"
-    mkdir -p "$HOME/tools"
-    git clone --depth 1 https://github.com/danielmiessler/SecLists.git "$SECLISTS_DIR"
-else
-    echo "  -> déjà présent dans $SECLISTS_DIR"
+if [ "$SKIP_SECURITY" -eq 0 ]; then
+    echo
+    echo "==> SecLists (wordlists)"
+    SECLISTS_DIR="$HOME/tools/SecLists"
+    if [ ! -d "$SECLISTS_DIR" ]; then
+        echo "  -> clonage dans $SECLISTS_DIR (~1 Go, peut prendre du temps)"
+        mkdir -p "$HOME/tools"
+        git clone --depth 1 https://github.com/danielmiessler/SecLists.git "$SECLISTS_DIR"
+    else
+        echo "  -> déjà présent dans $SECLISTS_DIR"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -284,9 +298,11 @@ echo "==> Récapitulatif"
 MISSING=""
 # bat/fd/httpie ont des noms de binaire différents selon la distro
 # (batcat/fdfind sur Debian, bat/fd sur RHEL-like) : on accepte les deux.
-for cmd in eza rg fzf zoxide btop tmux lazygit lynis nmap \
-    direnv ansible gobuster gping delta glow vim xclip \
-    lazydocker k9s dive tenv rustscan nuclei dysk git starship sheldon; do
+SEC_CMDS=""
+[ "$SKIP_SECURITY" -eq 0 ] && SEC_CMDS="lynis nmap gobuster"
+for cmd in eza rg fzf zoxide btop tmux lazygit \
+    direnv ansible gping delta glow vim xclip \
+    lazydocker k9s dive tenv rustscan nuclei dysk git starship sheldon $SEC_CMDS; do
     command -v "$cmd" >/dev/null 2>&1 || MISSING="$MISSING $cmd"
 done
 command -v bat >/dev/null 2>&1 || command -v batcat >/dev/null 2>&1 || MISSING="$MISSING bat"
