@@ -1,5 +1,6 @@
 # Fichiers spécifiques à une machine (secrets, IPs internes...) — non versionnés
-.shell/alias_srv
+.shell/alias_srv*
+!.shell/alias_srv.example
 .shell/remote_files.sh
 
 # Sauvegardes générées par install.sh si exécuté depuis le repo
