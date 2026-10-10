@@ -1,0 +1,34 @@
+# Outils installés en binaire dans ~/.local/bin par install.sh.
+#
+# Une ligne par outil, champs séparés par "|" :
+#   commande | groupe | dépôt GitHub | motif de l'archive | binaire | chemin
+#
+#   commande : nom de la commande (sert à détecter si l'outil est déjà là)
+#   groupe   : base, ou secu (ignoré par ./install.sh --sysadmin)
+#   motif    : expression régulière sur la fin du nom de l'archive, sans le
+#              caractère "|" (réservé au séparateur de champs) ;
+#              {RUST} = x86_64 / aarch64, {GO} = x86_64 / arm64, {DEB} = amd64 / arm64
+#   binaire  : nom du binaire dans l'archive (vide : même nom que la commande)
+#   chemin   : motif `find -path` quand l'archive contient plusieurs binaires
+#
+# Ce fichier dit QUOI installer. Les versions exactes et leurs sommes de
+# contrôle sont figées dans tools.lock, régénéré par ./update-tools.sh.
+# Les variantes musl (liées statiquement) sont préférées quand elles existent :
+# elles tournent aussi sur les glibc anciennes (RHEL 8).
+
+starship|base|starship/starship|starship-{RUST}-unknown-linux-musl\.tar\.gz||
+sheldon|base|rossmacarthur/sheldon|sheldon-[0-9.]+-{RUST}-unknown-linux-musl\.tar\.gz||
+eza|base|eza-community/eza|eza_{RUST}-unknown-linux-[a-z]+\.tar\.gz||
+zoxide|base|ajeetdsouza/zoxide|{RUST}-unknown-linux-musl\.tar\.gz||
+lazygit|base|jesseduffield/lazygit|_linux_{GO}\.tar\.gz||
+gping|base|orf/gping|Linux-musl-{GO}\.tar\.gz||
+delta|base|dandavison/delta|{RUST}-unknown-linux-[a-z]+\.tar\.gz||
+glow|base|charmbracelet/glow|_Linux_{GO}\.tar\.gz||
+lazydocker|base|jesseduffield/lazydocker|_Linux_{GO}\.tar\.gz||
+k9s|base|derailed/k9s|_Linux_{DEB}\.tar\.gz||
+dive|base|wagoodman/dive|_linux_{DEB}\.tar\.gz||
+tenv|base|tofuutils/tenv|_Linux_{GO}\.tar\.gz||
+dysk|base|Canop/dysk|dysk_[0-9.]+\.zip||*/{RUST}-unknown-linux-musl/*
+gobuster|secu|OJ/gobuster|_Linux_{GO}\.tar\.gz||
+rustscan|secu|RustScan/RustScan|{RUST}-linux-rustscan(\.tar\.gz)?\.zip||
+nuclei|secu|projectdiscovery/nuclei|_linux_{DEB}\.zip||

@@ -146,11 +146,40 @@ Plus : `lazygit`, `lynis`, `nmap`, `tmux`, `fzf`, `starship`, `sheldon`,
 | `dysk` | CLI | Utilisation disque (tableau coloré, alternative à `df`) — utilisé par le motd |
 
 Tous les outils de ce tableau (sauf `ansible` et `direnv`, packagés sur
-Debian/RHEL) sont installés en binaire depuis la dernière release GitHub
-(x86_64 ou arm64) dans `~/.local/bin` — ça ne nécessite pas de droits root et
-fonctionne aussi bien sur Debian que RHEL-like. Si l'archive attendue n'est
-pas trouvée (changement de format de release), le script l'indique pour une
-installation manuelle.
+Debian/RHEL), ainsi que Starship et Sheldon, sont installés en binaire depuis
+leur release GitHub (x86_64 ou arm64) dans `~/.local/bin` — ça ne nécessite pas
+de droits root et fonctionne aussi bien sur Debian que RHEL-like.
+
+### Versions figées et sommes de contrôle
+
+`install.sh` n'installe jamais « la dernière version » :
+
+- [tools.list](tools.list) dit **quoi** installer (dépôt GitHub, motif de l'archive) ;
+- [tools.lock](tools.lock) fige **quelle version** : l'URL exacte de l'archive et
+  sa somme SHA-256, pour chaque architecture.
+
+Chaque archive téléchargée est comparée à sa somme avant extraction ; en cas
+d'écart, elle est rejetée et rien n'est installé. Deux machines installées à
+six mois d'intervalle obtiennent donc exactement les mêmes binaires.
+
+Pour monter de version :
+
+```bash
+./update-tools.sh            # tous les outils
+./update-tools.sh eza delta  # seulement ceux-là
+git diff tools.lock          # relire avant de valider
+```
+
+Les sommes sont calculées au moment de la mise à jour, à partir de ce que
+GitHub sert ce jour-là : elles garantissent que l'archive ne change pas
+ensuite, pas qu'elle était saine au départ.
+
+## Intégration continue
+
+À chaque push, [.github/workflows/lint.yml](.github/workflows/lint.yml) lance
+ShellCheck sur les scripts, vérifie la syntaxe Zsh de `.zshrc` et des alias, et
+contrôle que chaque outil de `tools.list` a bien une version figée par
+architecture dans `tools.lock`.
 
 ## Applis de référence
 

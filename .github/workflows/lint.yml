@@ -1,0 +1,42 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: |
+          shellcheck -s bash install.sh update-tools.sh wezterm/plugins.sh \
+            .shell/add_srv.sh .shell/motd .shell/man_alias_*.sh
+
+      - name: Syntaxe Zsh
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zsh
+          zsh -n .zshrc
+          zsh -n .shell/alias
+
+      - name: Cohérence tools.list / tools.lock
+        run: |
+          # Chaque outil doit avoir une version figée pour chaque architecture,
+          # avec une somme SHA-256 complète.
+          status=0
+          while IFS='|' read -r name _; do
+            case "$name" in ''|\#*) continue ;; esac
+            for arch in x86_64 arm64; do
+              if ! grep -qE "^$name\|$arch\|https://github\.com/[^|]+\|[0-9a-f]{64}$" tools.lock; then
+                echo "::error file=tools.lock::$name ($arch) absent ou invalide"
+                status=1
+              fi
+            done
+          done < tools.list
+          exit $status

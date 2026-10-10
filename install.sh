@@ -202,14 +202,12 @@ if [ -r /etc/os-release ]; then
     OS_ID=$(. /etc/os-release && echo "${ID:-}")
 fi
 
-# Les projets ne nomment pas leurs archives de la même façon :
-#   ARCH_RUST : x86_64 / aarch64     (eza, zoxide, delta, rustscan, dysk)
-#   ARCH_GO   : x86_64 / arm64       (lazygit, gobuster, gping, glow, lazydocker, tenv)
-#   ARCH_DEB  : amd64  / arm64       (k9s, dive, nuclei)
+# ARCH_KEY  : nom de l'architecture dans tools.lock
+# ARCH_RUST : nom utilisé dans les chemins internes de certaines archives
 case "$(uname -m)" in
-    x86_64|amd64)  ARCH_RUST="x86_64";  ARCH_GO="x86_64"; ARCH_DEB="amd64" ;;
-    aarch64|arm64) ARCH_RUST="aarch64"; ARCH_GO="arm64";  ARCH_DEB="arm64" ;;
-    *)             ARCH_RUST="";        ARCH_GO="";       ARCH_DEB="" ;;
+    x86_64|amd64)  ARCH_KEY="x86_64"; ARCH_RUST="x86_64" ;;
+    aarch64|arm64) ARCH_KEY="arm64";  ARCH_RUST="aarch64" ;;
+    *)             ARCH_KEY="";       ARCH_RUST="" ;;
 esac
 
 echo
@@ -304,58 +302,42 @@ else
     esac
 fi
 
-echo
-echo "==> Installation de Starship"
-# -b : installe dans ~/.local/bin (le défaut /usr/local/bin exige root)
-command -v starship >/dev/null 2>&1 \
-    || curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin" \
-    || echo "  ! Starship n'a pas pu être installé, à installer manuellement"
-
-echo
-echo "==> Installation de Sheldon"
-command -v sheldon >/dev/null 2>&1 || [ -x "$HOME/.local/bin/sheldon" ] \
-    || curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh \
-        | bash -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin" \
-    || echo "  ! Sheldon n'a pas pu être installé, à installer manuellement"
-
-echo
-echo "==> Verrouillage des plugins Sheldon"
-"$HOME/.local/bin/sheldon" lock --update 2>/dev/null \
-    || sheldon lock --update \
-    || echo "  ! 'sheldon lock' a échoué (réseau/proxy ?), relance-le manuellement"
-
 # ---------------------------------------------------------------------------
-# Outils additionnels : binaires depuis la dernière release GitHub,
-# installés dans ~/.local/bin (ne nécessite PAS de droits root, fonctionne
-# sur Debian comme sur RHEL-like). Si le paquet système est déjà présent
-# (ex: apt sur Debian), l'outil est détecté et l'étape est ignorée.
+# Outils en binaire (Starship, Sheldon et les outils additionnels), installés
+# dans ~/.local/bin : ne nécessite PAS de droits root, fonctionne sur Debian
+# comme sur RHEL-like. Si le paquet système est déjà présent (ex: apt sur
+# Debian), l'outil est détecté et l'étape est ignorée.
+#
+# La liste des outils est dans tools.list. La version exacte de chacun et la
+# somme SHA-256 de son archive sont figées dans tools.lock (régénéré par
+# ./update-tools.sh) : aucune archive n'est installée sans vérification.
 # ---------------------------------------------------------------------------
 
-# install_binary_release <commande> <owner/repo> <motif_asset> [nom_binaire] [motif_chemin]
-#   motif_asset  : expression régulière sur le nom de l'archive
+LIST_FILE="$DOTFILES_DIR/tools.list"
+LOCK_FILE="$DOTFILES_DIR/tools.lock"
+
+# install_binary_release <commande> [nom_binaire] [motif_chemin]
 #   nom_binaire  : nom du binaire dans l'archive (défaut : <commande>)
 #   motif_chemin : motif `find -path` pour choisir le bon binaire quand
 #                  l'archive en contient plusieurs (une par architecture)
 # Ne fait jamais échouer le script : tout problème est signalé puis ignoré.
 install_binary_release() {
-    local name="$1" repo="$2" pattern="$3" bin_name="${4:-$1}" path_glob="${5:-*}"
+    local name="$1" bin_name="${2:-$1}" path_glob="${3:-*}"
     command -v "$name" >/dev/null 2>&1 && return 0
+    [ -x "$HOME/.local/bin/$bin_name" ] && return 0
 
-    if [ -z "$ARCH_RUST" ]; then
+    if [ -z "$ARCH_KEY" ]; then
         echo "  ! $name : architecture $(uname -m) non gérée, à installer manuellement"
         return 0
     fi
 
-    local url
-    # `|| true` : sans correspondance, grep renvoie 1 et `set -e -o pipefail`
-    # arrêterait tout le script avant le message ci-dessous.
-    url=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
-        | grep -oP "\"browser_download_url\": ?\"\\K[^\"]*${pattern}(?=\")" \
-        | head -1 || true)
-
-    if [ -z "$url" ]; then
-        echo "  ! $name : aucune archive correspondant à '$pattern' trouvée pour $repo"
-        echo "    (format de release modifié, ou quota de l'API GitHub atteint) : à installer manuellement"
+    local entry url sha256
+    entry=$(awk -F'|' -v n="$name" -v a="$ARCH_KEY" \
+        '$1 == n && $2 == a { print $3 "|" $4; exit }' "$LOCK_FILE" 2>/dev/null || true)
+    url=${entry%%|*}
+    sha256=${entry##*|}
+    if [ -z "$entry" ] || [ -z "$url" ] || [ -z "$sha256" ]; then
+        echo "  ! $name : pas de version figée pour $ARCH_KEY dans tools.lock (lance ./update-tools.sh $name)"
         return 0
     fi
 
@@ -364,6 +346,15 @@ install_binary_release() {
     echo "  -> $name : $url"
     if ! curl -fsSL "$url" -o "$tmpdir/archive"; then
         echo "  ! $name : téléchargement impossible"
+        rm -rf "$tmpdir"
+        return 0
+    fi
+
+    # L'archive doit être exactement celle qui a été enregistrée dans tools.lock
+    if ! echo "$sha256  $tmpdir/archive" | sha256sum -c --status -; then
+        echo "  ! $name : somme de contrôle INCORRECTE, archive rejetée (rien n'est installé)"
+        echo "    attendu : $sha256"
+        echo "    obtenu  : $(sha256sum "$tmpdir/archive" | cut -d' ' -f1)"
         rm -rf "$tmpdir"
         return 0
     fi
@@ -405,25 +396,22 @@ install_binary_release() {
 }
 
 echo
-echo "==> Installation des outils additionnels (binaires depuis GitHub releases, ~/.local/bin)"
-# Les variantes musl (liées statiquement) sont préférées quand elles existent :
-# elles tournent aussi sur les glibc anciennes (RHEL 8).
-install_binary_release eza        eza-community/eza  "${ARCH_RUST}-unknown-linux-gnu\\.tar\\.gz"
-install_binary_release zoxide     ajeetdsouza/zoxide "${ARCH_RUST}-unknown-linux-musl\\.tar\\.gz"
-install_binary_release lazygit    jesseduffield/lazygit "_linux_${ARCH_GO}\\.tar\\.gz"
-install_binary_release gping      orf/gping          "Linux-musl-${ARCH_GO}\\.tar\\.gz"
-install_binary_release delta      dandavison/delta   "${ARCH_RUST}-unknown-linux-(musl|gnu)\\.tar\\.gz"
-install_binary_release glow       charmbracelet/glow "_Linux_${ARCH_GO}\\.tar\\.gz"
-install_binary_release lazydocker jesseduffield/lazydocker "_Linux_${ARCH_GO}\\.tar\\.gz"
-install_binary_release k9s        derailed/k9s       "_Linux_${ARCH_DEB}\\.tar\\.gz"
-install_binary_release dive       wagoodman/dive     "_linux_${ARCH_DEB}\\.tar\\.gz"
-install_binary_release tenv       tofuutils/tenv     "_Linux_${ARCH_GO}\\.tar\\.gz"
-install_binary_release dysk       Canop/dysk         "dysk_[0-9.]+\\.zip" dysk "*/${ARCH_RUST}-unknown-linux-musl/*"
-if [ "$SKIP_SECURITY" -eq 0 ]; then
-    install_binary_release gobuster OJ/gobuster         "_Linux_${ARCH_GO}\\.tar\\.gz"
-    install_binary_release rustscan RustScan/RustScan   "/${ARCH_RUST}-linux-rustscan(\\.tar\\.gz)?\\.zip"
-    install_binary_release nuclei   projectdiscovery/nuclei "_linux_${ARCH_DEB}\\.zip"
+echo "==> Installation des outils en binaire (versions figées dans tools.lock, ~/.local/bin)"
+if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "  ! 'sha256sum' est requis pour vérifier les archives : aucun binaire installé"
+else
+    while IFS='|' read -r tool group _repo _pattern tool_bin tool_glob <&3; do
+        case "$tool" in ''|\#*) continue ;; esac
+        [ "$group" = "secu" ] && [ "$SKIP_SECURITY" -eq 1 ] && continue
+        install_binary_release "$tool" "${tool_bin:-$tool}" "${tool_glob//\{RUST\}/$ARCH_RUST}"
+    done 3< "$LIST_FILE"
 fi
+
+echo
+echo "==> Verrouillage des plugins Sheldon"
+"$HOME/.local/bin/sheldon" lock --update 2>/dev/null \
+    || sheldon lock --update \
+    || echo "  ! 'sheldon lock' a échoué (réseau/proxy ?), relance-le manuellement"
 
 echo
 echo "==> Pré-installation des plugins WezTerm (cache local, voir wezterm/README.md)"
