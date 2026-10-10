@@ -27,11 +27,13 @@ use = ["{{ name }}.zsh"]
 github = "zsh-users/zsh-syntax-highlighting"
 use = ["{{ name }}.zsh"]
 
+# Chaque outil n'est initialisé que s'il est installé (pas d'erreur à
+# l'ouverture du shell sur une machine où il manque)
 [plugins.starship]
-inline = 'eval "$(starship init zsh)"'
+inline = 'command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"'
 
 [plugins.zoxide]
-inline = 'eval "$(zoxide init zsh)"'
+inline = 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"'
 
 [plugins.direnv]
-inline = 'eval "$(direnv hook zsh)"'
+inline = 'command -v direnv >/dev/null 2>&1 && eval "$(direnv hook zsh)"'

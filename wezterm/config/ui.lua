@@ -38,15 +38,25 @@ function M.apply(config, wezterm, platform)
   config.font_size = platform.is_macos and 13.0 or 12.0
 
   -- === Fond d’écran ===
-  config.window_background_image = "/home/user/images/background.jpg"
-  config.window_background_opacity = 0.90   -- transparence de l’image
-  
+  -- Image propre à chaque machine : dépose (ou lie) un fichier
+  -- background.jpg / background.png dans le dossier de config WezTerm
+  -- (non versionné, voir .gitignore). Sans image, fond uni du thème.
+  for _, name in ipairs({ "background.jpg", "background.png" }) do
+    local path = wezterm.config_dir .. "/" .. name
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      config.window_background_image = path
+      break
+    end
+  end
+  config.window_background_opacity = 1.0   -- transparence de l’image
+
   -- Optionnels : densité et ligatures
   -- config.line_height = 1.05
   -- config.cell_width  = 1.0
   -- config.harfbuzz_features = { "calt", "clig", "liga" }
 
-  config.window_background_opacity = 0.95
   config.macos_window_background_blur = 20
   config.window_close_confirmation = "NeverPrompt"
   config.use_fancy_tab_bar = true

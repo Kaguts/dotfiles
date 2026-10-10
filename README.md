@@ -2,8 +2,9 @@
 
 ![Version](https://img.shields.io/badge/version-1.0-blue)
 
-Configuration personnelle (Debian 13) pour le shell, l'éditeur et le terminal.
-Pensée pour être appliquée rapidement sur une nouvelle machine via `install.sh`.
+Configuration personnelle pour le shell, l'éditeur et le terminal.
+Pensée pour être appliquée rapidement sur une nouvelle machine via `install.sh`,
+sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
 
 👉 Pour l'utilisation au quotidien (alias, raccourcis, prompt...), voir [USAGE.md](USAGE.md).
 👉 Pour un pense-bête condensé (raccourcis WezTerm/tmux, alias...), voir [TIPS.md](TIPS.md).
@@ -58,8 +59,11 @@ avant de créer les liens.
 
 `--tools` détecte automatiquement l'environnement :
 
-- **Debian/Ubuntu** (`apt`) : installation complète via les paquets officiels.
-- **RHEL-like** (Rocky, Alma, CentOS — `dnf`/`yum`) : active EPEL et installe
+- **Debian/Ubuntu** (`apt`) : installation via les paquets officiels. Les
+  paquets absents d'une version donnée (`eza`, `lazygit`, `gping`, `glow` sur
+  Debian 12 ou Ubuntu 22.04) sont signalés puis installés en binaire.
+- **RHEL-like** (RHEL, Rocky, Alma, CentOS, Fedora — `dnf`/`yum`) : active EPEL
+  (via le RPM du projet Fedora sur RHEL) et CRB, puis installe
   ce qui est packagé (`ripgrep`, `fzf`, `bat`, `fd-find`, `tmux`, `btop`,
   `nmap`, `lynis`, `httpie`, `direnv`, `ansible`, `vim-enhanced`, `xclip`...).
   Les outils non packagés sur RHEL-like (`eza`, `zoxide`, `lazygit`,
@@ -71,7 +75,32 @@ avant de créer les liens.
   nuclei + SecLists) sont quand même installés, car ils ne nécessitent pas
   de droits root.
 
-Dans tous les cas, un récapitulatif final liste les outils encore absents.
+- **Architecture** : x86_64 et arm64.
+
+Dans tous les cas, un récapitulatif final liste les outils encore absents, et
+aucune étape en échec n'arrête le script. `zsh` est installé mais le shell de
+connexion n'est pas changé d'office : le script rappelle la commande `chsh`.
+
+### Windows (WSL)
+
+Tout se passe dans la distribution WSL (Debian, Ubuntu, Rocky...) : clone le
+dépôt dans le système de fichiers Linux (`~/dotfiles`, pas `/mnt/c`) et lance
+`install.sh` comme sur une machine Linux.
+
+WezTerm tourne côté Windows et ne peut pas suivre un lien symbolique créé dans
+WSL. Pour y copier la config :
+
+```bash
+./install.sh --wezterm-windows
+```
+
+La config arrive dans `%USERPROFILE%\.config\wezterm` (l'ancienne est renommée
+en `.bak-<date>`). C'est une copie : relance la commande après chaque
+modification. WezTerm ouvre alors la distribution WSL par défaut (voir
+[wezterm/config/domains.lua](wezterm/config/domains.lua)).
+
+Prévoir côté Windows une police Nerd Font (JetBrains Mono, FiraCode Nerd Font)
+pour les icônes d'`eza` et de Starship.
 
 ## Fichiers locaux non versionnés
 
@@ -80,6 +109,9 @@ inclus dans ce repo** (secrets, IPs internes...) :
 
 - `~/.shell/alias_srv` — alias de connexion SSH vers tes serveurs (modèle : [.shell/alias_srv.example](.shell/alias_srv.example))
 - `~/.shell/remote_files.sh` — script utilisé par l'alias `remotefile`
+- `~/.zshrc.local` — réglages Zsh propres à la machine, sourcé en fin de `.zshrc`
+- `wezterm/background.jpg` (ou `.png`) — fond d'écran WezTerm ; un lien
+  symbolique vers ton image suffit. Sans ce fichier, fond uni du thème.
 
 ## Stack CLI
 
@@ -115,7 +147,7 @@ Plus : `lazygit`, `lynis`, `nmap`, `tmux`, `fzf`, `starship`, `sheldon`,
 
 Tous les outils de ce tableau (sauf `ansible` et `direnv`, packagés sur
 Debian/RHEL) sont installés en binaire depuis la dernière release GitHub
-(amd64) dans `~/.local/bin` — ça ne nécessite pas de droits root et
+(x86_64 ou arm64) dans `~/.local/bin` — ça ne nécessite pas de droits root et
 fonctionne aussi bien sur Debian que RHEL-like. Si l'archive attendue n'est
 pas trouvée (changement de format de release), le script l'indique pour une
 installation manuelle.

@@ -3,7 +3,15 @@
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 
 # Alias de base
-alias log="sudo tail -f /var/log/messages"
+# Journal système : /var/log/messages (RHEL-like), /var/log/syslog (Debian),
+# sinon journald (Debian récent, WSL avec systemd)
+if [ -f /var/log/messages ]; then
+    alias log="sudo tail -f /var/log/messages"
+elif [ -f /var/log/syslog ]; then
+    alias log="sudo tail -f /var/log/syslog"
+else
+    alias log="sudo journalctl -f"
+fi
 alias grep="grep --color=auto"
 alias igrep="grep -i"
 alias lh="ls -lh --color=auto"
@@ -16,28 +24,39 @@ alias remotefile="~/.shell/remote_files.sh"
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #               Eza                      #
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
-alias ls='eza --all --long --group --group-directories-first --icons --header --time-style long-iso'
-alias ll='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
-alias lart='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
+# Sans eza (machine sans --tools), ls/ll gardent leur comportement standard
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --all --long --group --group-directories-first --icons --header --time-style long-iso'
+    alias ll='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
+    alias lart='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
+else
+    alias ll='ls -lart --color=auto'
+    alias lart='ls -lart --color=auto'
+fi
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #       Outils CLI modernes              #
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 
 # Sur Debian, bat/fd sont installés sous batcat/fdfind pour éviter
-# un conflit de nom avec des paquets existants.
-command -v bat >/dev/null || alias bat='batcat'
-command -v fd >/dev/null || alias fd='fdfind'
-
-alias cat='bat --paging=never'
-alias top='btop'
+# un conflit de nom avec des paquets existants. Les alias ne sont posés
+# que si l'outil est présent, pour ne pas casser cat/top sur une machine nue.
+if command -v bat >/dev/null 2>&1; then
+    alias cat='bat --paging=never'
+elif command -v batcat >/dev/null 2>&1; then
+    alias bat='batcat'
+    alias cat='batcat --paging=never'
+fi
+if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    alias fd='fdfind'
+fi
+command -v btop >/dev/null 2>&1 && alias top='btop'
 
 
 # Alias des serveurs pour une connexion rapide (fichier local, non versionné)
 [ -f ~/.shell/alias_srv ] && source ~/.shell/alias_srv
 
 # Alias du man
-alias man_alias="~/.shell/man_alias_all.sh"
 alias adocker="~/.shell/man_alias_docker.sh"
 alias asys="~/.shell/man_alias_sys.sh"
 alias agit="~/.shell/man_alias_git.sh"
@@ -150,7 +169,7 @@ fstr() {
 
 # Créer un répertoire et entrer dedans
 mkcd() {
-    mkdir -p "$1" && cd "$1"
+    mkdir -p "$1" && cd "$1" || return
 }
 
 # Remonter les processus les plus gourmands en mémoire
@@ -165,5 +184,6 @@ topcpu() {
 
 # Obtenir l'adresse IP locale
 myip() {
-    hostname -I | awk '{print $1}'
+    # `ip` est présent partout (Debian, RHEL, WSL) ; `hostname -I` ne l'est pas
+    ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i + 1); exit}}'
 }

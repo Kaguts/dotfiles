@@ -3,6 +3,10 @@
 !.shell/alias_srv.example
 .shell/remote_files.sh
 
+# Fond d'écran WezTerm propre à la machine (voir wezterm/config/ui.lua)
+wezterm/background.jpg
+wezterm/background.png
+
 # Sauvegardes générées par install.sh si exécuté depuis le repo
 .dotfiles_backup/
 
