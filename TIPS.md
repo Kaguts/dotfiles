@@ -11,9 +11,10 @@ chaque dossier (notamment [wezterm/README.md](wezterm/README.md)).
   est intercepté par WezTerm. Deux options : utilise les raccourcis WezTerm
   pour les splits/onglets (pas besoin de tmux dans ce cas), ou n'utilise tmux
   que dans un terminal qui n'est pas WezTerm (ex: connexion SSH directe).
-- **Alias serveurs perso** : copie [.shell/alias_srv.example](.shell/alias_srv.example)
-  vers `~/.shell/alias_srv` (non versionné) pour tes propres alias SSH —
-  ou utilise `addsrv` qui le fait pour toi.
+- **Alias serveurs** : chaque `Host` de `~/.ssh/config` a son alias
+  (`monserveur` = `ssh monserveur`) ; `addsrv` ajoute un serveur. Le reste (RDP...)
+  va dans `~/.shell/alias_srv` (non versionné, modèle :
+  [.shell/alias_srv.example](.shell/alias_srv.example)).
 - Après toute modif de `.shell/alias`, `starship.toml`, `sheldon/plugins.toml`...
   tape `reload` pour recharger le shell sans rouvrir un terminal.
 
@@ -65,22 +66,24 @@ sont pré-clonés mais désactivés — voir le tableau dans
 
 - **Tab** sur une complétion → menu interactif fzf (filtre en tapant, Entrée pour valider)
 - **Flèche droite** sur une suggestion grisée → l'accepte
-- `z <mot-clé>` → va dans un dossier déjà visité (zoxide) ; `zi` pour choisir parmi plusieurs résultats
-- `reload` → recharge `~/.zshrc`
+- **Ctrl-R** → historique avec fzf · **Ctrl-T** → fichier · **Alt-C** → dossier
+- `cd <mot-clé>` → saute vers un dossier déjà visité (zoxide) ; `cdi` pour choisir parmi plusieurs résultats
+- Un nom de dossier seul suffit : `..`, `/etc`, `projets`
+- `reload` → recharge `~/.zshrc` (ou `~/.bashrc`)
+- `dotup` → installe la dernière version des dotfiles (signalée une fois par jour à l'ouverture du shell)
 
 ### Alias `ls` (eza)
 
 | Alias | Équivalent |
 |---|---|
 | `ls` | `eza` avec icônes, groupes, dossiers d'abord |
-| `ll` / `lart` | `ls -lart` (tout, tri par date, ordre inversé) |
-| `la` | `ls -a` (système) |
-| `lh` | `ls -lh` (système) |
+| `ll` | `ls -lart` (tout, tri par date, ordre inversé) |
 
 ### Fonctions utiles
 
-`mkcd <dir>`, `ff <nom>`, `fstr <texte>`, `extract <archive>`, `myip`,
-`topmem`, `topcpu`, `h <mot>` (recherche historique).
+`mkcd <dir>`, `ff <motif>`, `fstr <mot>`, `extract <archive>`, `myip`, `topcpu`.
+
+Ansible : `ap <playbook>` simule (`--check --diff`), `apgo <playbook>` applique.
 
 ## 🔧 Git (`git/aliases.gitconfig`)
 
@@ -92,13 +95,11 @@ sont pré-clonés mais désactivés — voir le tableau dans
 | `git unstage <f>` | retire du staging |
 | `git aliases` | liste tous les alias git |
 
-Plus dans `.shell/alias` : `gco`, `gf`, `grh`, `gstash`, `gpop`, `gplr`, `girb`...
+Plus dans `.shell/alias` : `gf`, `gstash`, `gpop`, `girb`.
 
 ## 🐳 Docker
 
-`dstatus`, `dlogs`, `dexec`, `dbuild`, `dip`, `dstopa`/`dstarta` (tout
-stop/start), `dcleanc`/`dcleani` (nettoyage containers/images).
-Compose v2 : `dcup`, `dcdown`, `dcrestart`, `dclogs`, `dcrebuild`, `dcls`.
+`dstatus` (liste lisible), `dlogs`, `dexec`, `dcup` (Compose v2).
 
 ## 🛡️ Sécu / Pentest
 
@@ -116,11 +117,10 @@ Wordlists : `~/tools/SecLists/` (ex: `~/tools/SecLists/Discovery/Web-Content/com
 
 - `lazydocker` — TUI Docker · `dive <image>` — layers d'une image · `k9s` — TUI Kubernetes
 - `tenv tf use <version>` — bascule de version Terraform
-- `direnv allow` — au premier `cd` dans un dossier avec `.envrc`
 
 ## 📊 Divers
 
-- `dysk` — utilisation disque (tableau coloré), utilisé par le motd
+- `dysk` — utilisation disque (tableau coloré)
 - `gping <host>` — ping avec graphique
 - `glow <fichier.md>` — Markdown formaté dans le terminal
 
@@ -129,7 +129,9 @@ Wordlists : `~/tools/SecLists/` (ex: `~/tools/SecLists/Discovery/Web-Content/com
 ```bash
 git clone <url-du-repo> ~/dotfiles
 cd ~/dotfiles
-./install.sh --tools
+./install.sh --tools                 # groupe "base" ; --with docker,iac,... pour le reste
+./install.sh --check                 # contrôle l'installation
 ```
 
+Serveur sans root : `./install.sh --no-root --bash --tools --bin-dir <dossier>`.
 Voir [README.md](README.md) pour la compatibilité Debian/RHEL/sans-root.

@@ -8,6 +8,14 @@ eza|x86_64|https://github.com/eza-community/eza/releases/download/v0.23.5/eza_x8
 eza|arm64|https://github.com/eza-community/eza/releases/download/v0.23.5/eza_aarch64-unknown-linux-gnu.tar.gz|40b87ae8628aa2ff0f0d2dc24ab52f689631366385c3da630bae745671fd71ec
 zoxide|x86_64|https://github.com/ajeetdsouza/zoxide/releases/download/v0.10.0/zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz|2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae
 zoxide|arm64|https://github.com/ajeetdsouza/zoxide/releases/download/v0.10.0/zoxide-0.10.0-aarch64-unknown-linux-musl.tar.gz|f1f16c5d6298d63dee467eedea1cdcd8490e43e493bea43acd416dc9033ef641
+fzf|x86_64|https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_amd64.tar.gz|d47d7f882972c7d674dbbba998ffa4116e68379616ffac7695d0671e9a722c5f
+fzf|arm64|https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_arm64.tar.gz|cf058001da21724a469b714a29cf4aab9cbe860d218a0d6c1b5b661efad7784c
+bat|x86_64|https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz|0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191
+bat|arm64|https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-aarch64-unknown-linux-musl.tar.gz|6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23
+fd|x86_64|https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz|761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7
+fd|arm64|https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-aarch64-unknown-linux-musl.tar.gz|d76c4317f7d5dba69f8a2a15856c90c777e7f0dd4e85f0de8c76de6992c374d4
+rg|x86_64|https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz|33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c
+rg|arm64|https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz|800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915
 lazygit|x86_64|https://github.com/jesseduffield/lazygit/releases/download/v0.66.0/lazygit_0.66.0_linux_x86_64.tar.gz|5b45541155d20bd32bf2cc5ab5b7e3d91c2eebf0fb1242281350edc27d59d2b7
 lazygit|arm64|https://github.com/jesseduffield/lazygit/releases/download/v0.66.0/lazygit_0.66.0_linux_arm64.tar.gz|9a4fc4656897ac9f7877b835473ce1a75620cc267f554c57fc4ff266407f3257
 gping|x86_64|https://github.com/orf/gping/releases/download/gping-v1.21.0/gping-Linux-musl-x86_64.tar.gz|cea59e22f6faf941f054cf0925433a2e3e4e6c42dc5c778b0265279a5056aeec

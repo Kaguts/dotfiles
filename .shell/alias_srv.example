@@ -1,9 +1,11 @@
-# Alias de connexion SSH vers tes serveurs.
+# Alias locaux en plus de ceux tirés de ~/.ssh/config.
 #
-# Ce fichier est un modèle : copie-le en ~/.shell/alias_srv (non versionné,
-# voir .gitignore) et adapte-le. Il est automatiquement sourcé par
-# ~/.shell/alias si présent.
+# Chaque Host de ~/.ssh/config a déjà son alias (`monserveur` = `ssh monserveur`),
+# créé par ~/.shell/alias : inutile de les répéter ici. Ce fichier sert au
+# reste : RDP, options particulières, connexion différente de ~/.ssh/config.
+#
+# Copie-le en ~/.shell/alias_srv (non versionné, voir .gitignore). Il est
+# chargé en dernier : un alias du même nom qu'un Host le remplace.
 
-# alias monserveur="ssh -i ~/.ssh/KEY/ma_cle utilisateur@1.2.3.4"
-# alias prod="ssh utilisateur@prod.example.com"
+# alias bureau="xfreerdp3 /v:1.2.3.4 /u:Administrateur"
 # alias bastion="ssh -A utilisateur@bastion.example.com"

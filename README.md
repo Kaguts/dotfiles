@@ -12,19 +12,22 @@ sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
 ## Structure
 
 - [.zshrc](.zshrc) — config Zsh, plugins gérés par [Sheldon](https://github.com/rossmacarthur/sheldon)
+- [.bashrc](.bashrc) — équivalent bash, pour les serveurs sans zsh (`./install.sh --bash`)
 - [.vimrc](.vimrc) — config Vim (éditeur par défaut du shell ; le développement se fait dans VSCode)
 - [.tmux.conf](.tmux.conf) — config tmux (préfixe Ctrl+a, souris, mode vi)
 - [.shell/](.shell/) — alias, fonctions et scripts shell perso
-  - `alias` — alias et fonctions (eza, docker, git, outils CLI modernes...)
-  - `alias_srv.example` — modèle pour tes alias SSH perso (non versionnés)
-  - `motd` — message d'accueil du shell
-  - `man_alias_*.sh` — mini "manuels" pour les alias
-  - `add_srv.sh` — script d'ajout de serveur
+  - `env` — environnement commun à zsh et bash (PATH, éditeur, nvm à la demande)
+  - `alias` — alias et fonctions, communs à zsh et bash (eza, docker, git, serveurs...)
+  - `alias_srv.example` — modèle pour tes alias locaux en plus (non versionnés)
+  - `motd` — message d'accueil du shell (charge, mémoire, disques, réseau, état ; bash seul, sans droit root)
+  - `add_srv.sh` — ajoute un serveur dans `~/.ssh/config` (alias `addsrv`)
 - [sheldon/](sheldon/) — gestionnaire de plugins Zsh (voir [sheldon/README.md](sheldon/README.md))
 - [starship.toml](starship.toml) — prompt Starship orienté DevOps/sécu (git, Docker, k8s, AWS, Terraform, Python venv)
 - [wezterm/](wezterm/) — config WezTerm modulaire + plugins (voir [wezterm/README.md](wezterm/README.md))
 - [git/aliases.gitconfig](git/aliases.gitconfig) — alias git complémentaires, inclus depuis `~/.gitconfig`
-- [install.sh](install.sh) — bootstrap : crée les liens symboliques et installe les outils
+- [install.sh](install.sh) — bootstrap : crée les liens symboliques, installe les outils, contrôle l'installation (`--check`)
+- [tests/check-aliases.sh](tests/check-aliases.sh) — vérifie que chaque alias lance une commande qui existe
+- [tests/check-leaks.sh](tests/check-leaks.sh) — vérifie qu'aucune information personnelle n'entre dans ce dépôt public
 
 ## Installation sur une nouvelle machine
 
@@ -35,9 +38,85 @@ cd ~/dotfiles
 # Liens symboliques uniquement
 ./install.sh
 
-# Liens symboliques + installation des outils CLI (apt, starship, sheldon)
+# Liens symboliques + outils du groupe "base" (shell, prompt, eza, bat, fzf...)
 ./install.sh --tools
+
+# Avec des groupes en plus : extra, docker, k8s, iac, secu (ou "all")
+./install.sh --with docker,iac
+
+# Contrôler l'installation sans rien modifier
+./install.sh --check
 ```
+
+### Groupes d'outils
+
+`--tools` n'installe que le groupe `base`. Le reste se demande avec
+`--with`, pour n'avoir sur chaque machine que ce qui y sert :
+
+| Groupe | Contenu |
+|---|---|
+| `base` | `zsh`, `starship`, `sheldon`, `eza`, `bat`, `fd`, `ripgrep`, `fzf`, `zoxide`, `delta`, `dysk`, `btop`, `tmux`, `vim`, `httpie` |
+| `extra` | `lazygit`, `gping`, `glow` |
+| `docker` | `lazydocker`, `dive` |
+| `k8s` | `k9s` |
+| `iac` | `ansible`, `tenv` |
+| `secu` | `nmap`, `lynis`, `gobuster`, `rustscan`, `nuclei`, SecLists |
+
+Les groupes choisis sont mémorisés dans `~/.config/dotfiles/env` : un
+`./install.sh --tools` ultérieur les reprend. `--sysadmin` équivaut à
+`--update --with extra,docker,k8s,iac`.
+
+### Serveur sans droits root, binaires dans un dossier choisi
+
+```bash
+./install.sh --no-root --bash --tools --bin-dir /data/outils/bin
+```
+
+- `--no-root` : n'essaie pas `sudo` (pas de demande de mot de passe), aucun
+  paquet système ; tout ce qui existe en binaire est téléchargé.
+- `--bin-dir DOSSIER` : les binaires vont dans ce dossier au lieu de
+  `~/.local/bin`. Le choix est mémorisé dans `~/.config/dotfiles/env` et le
+  dossier est ajouté au `PATH` par `~/.shell/env`, en zsh comme en bash.
+- `--bash` : met en place `~/.bashrc` (l'ancien est sauvegardé), pour les
+  serveurs où zsh n'est pas installé. Même prompt Starship, mêmes alias,
+  `cd` avec zoxide, Ctrl-R avec fzf. Un shell non interactif (`scp`, `rsync`,
+  Ansible) ne charge rien.
+
+Restent à demander à un admin, faute de binaire autonome : `zsh`, `tmux`,
+`btop`, `vim`.
+
+### Rester à jour
+
+À la première ouverture de shell de la journée, la config compare le dépôt
+local à sa version en ligne (une seule interrogation par jour, 4 secondes au
+plus, rien n'est téléchargé). Si une nouvelle version existe, une ligne le
+signale :
+
+```
+dotfiles : une nouvelle version est en ligne. Lance 'dotup' pour l'installer.
+```
+
+`dotup` (ou `./install.sh --upgrade`) fait alors, dans l'ordre :
+
+1. `git pull --ff-only` dans le dépôt (abandon sans rien modifier en cas de
+   conflit avec des modifications locales) ;
+2. refait les liens symboliques avec la nouvelle version ;
+3. remplace les binaires déjà installés dont la version a changé dans
+   `tools.lock`, et met à jour les plugins Sheldon.
+
+Les paquets système ne sont pas touchés (c'est le rôle d'`apt`/`dnf`), donc
+aucun mot de passe `sudo` n'est demandé. Les réglages mémorisés (dossier des
+binaires, groupes) sont repris tels quels.
+
+Pour désactiver le contrôle quotidien : `touch ~/.config/dotfiles/no-update-check`.
+
+### Contrôler l'installation
+
+`./install.sh --check` ne modifie rien et signale : version en retard sur le
+dépôt en ligne, lien symbolique cassé,
+`include.path` git qui pointe dans le vide, dossier des binaires hors du
+`PATH`, plugins Sheldon non installés, alias sans cible, outil manquant dans
+un groupe demandé. Code retour 1 s'il reste un point à corriger.
 
 ### Mettre à jour les liens (dépôt déplacé/renommé)
 
@@ -65,15 +144,15 @@ avant de créer les liens.
 - **RHEL-like** (RHEL, Rocky, Alma, CentOS, Fedora — `dnf`/`yum`) : active EPEL
   (via le RPM du projet Fedora sur RHEL) et CRB, puis installe
   ce qui est packagé (`ripgrep`, `fzf`, `bat`, `fd-find`, `tmux`, `btop`,
-  `nmap`, `lynis`, `httpie`, `direnv`, `ansible`, `vim-enhanced`, `xclip`...).
+  `httpie`, `vim-enhanced`, `xclip`...).
   Les outils non packagés sur RHEL-like (`eza`, `zoxide`, `lazygit`,
   `gobuster`, `gping`, `delta`, `glow`, `lazydocker`, `k9s`, `dive`, `tenv`,
   `rustscan`) sont installés en binaire dans `~/.local/bin` (voir ci-dessous).
 - **Sans droits root/sudo** : l'étape des paquets système est ignorée (avec
   la liste à transmettre à un admin), mais tous les outils installables en
-  binaire dans `~/.local/bin` (Starship, Sheldon, et la liste ci-dessus +
-  nuclei + SecLists) sont quand même installés, car ils ne nécessitent pas
-  de droits root.
+  binaire (Starship, Sheldon, `fzf`, `bat`, `fd`, `ripgrep` et la liste
+  ci-dessus) sont quand même installés, dans `~/.local/bin` ou dans le
+  dossier donné par `--bin-dir`, car ils ne nécessitent pas de droits root.
 
 - **Architecture** : x86_64 et arm64.
 
@@ -107,9 +186,20 @@ pour les icônes d'`eza` et de Starship.
 Certains alias référencent des fichiers spécifiques à une machine, **non
 inclus dans ce repo** (secrets, IPs internes...) :
 
-- `~/.shell/alias_srv` — alias de connexion SSH vers tes serveurs (modèle : [.shell/alias_srv.example](.shell/alias_srv.example))
-- `~/.shell/remote_files.sh` — script utilisé par l'alias `remotefile`
-- `~/.zshrc.local` — réglages Zsh propres à la machine, sourcé en fin de `.zshrc`
+- `~/.ssh/config` — la liste des serveurs : chaque `Host` devient un alias
+  de connexion (`monserveur` = `ssh monserveur`)
+- `~/.shell/alias_srv` — alias locaux en plus (RDP, connexion particulière),
+  prioritaires sur les précédents (modèle : [.shell/alias_srv.example](.shell/alias_srv.example))
+- `~/.zshrc.local` / `~/.bashrc.local` — réglages propres à la machine, sourcés en fin de `.zshrc` / `.bashrc`
+- `~/.config/dotfiles/env` — écrit par `install.sh` : dossier des binaires et groupes d'outils choisis
+- `~/.config/dotfiles/tools.installed` — écrit par `install.sh` : version de chaque binaire installé
+
+Ce dépôt est public. `install.sh` active un hook `pre-commit`
+([.githooks/pre-commit](.githooks/pre-commit)) qui refuse tout commit contenant
+une adresse IP, un chemin de dossier personnel, une clé privée, ton nom
+d'utilisateur, le nom de ta machine ou un nom de serveur de `~/.ssh/config`.
+Ces valeurs sont lues sur ta machine au moment du contrôle, jamais écrites
+dans le dépôt. À lancer à la main : `tests/check-leaks.sh`.
 - `wezterm/background.jpg` (ou `.png`) — fond d'écran WezTerm ; un lien
   symbolique vers ton image suffit. Sans ce fichier, fond uni du thème.
 
@@ -127,28 +217,29 @@ inclus dans ce repo** (secrets, IPs internes...) :
 Plus : `lazygit`, `lynis`, `nmap`, `tmux`, `fzf`, `starship`, `sheldon`,
 `git diff` → `delta`.
 
-## Outils additionnels (`--tools`)
+## Outils additionnels (`--with`)
 
-| Outil | Catégorie | Rôle |
+| Outil | Groupe | Rôle |
 |---|---|---|
-| `direnv` | Dev | Charge des variables d'env par dossier (`.envrc`) |
-| `ansible` | Infra | Automatisation/configuration |
-| `tenv` | Infra | Version manager Terraform/OpenTofu/Terragrunt |
-| `lazydocker` | Conteneurs | TUI Docker |
-| `dive` | Conteneurs | Analyse des layers d'image Docker |
-| `k9s` | Kubernetes | TUI pour cluster k8s |
-| `rustscan` | Sécu | Scanner de ports rapide |
-| `nuclei` | Sécu | Scanner de vulnérabilités basé templates |
-| `gobuster` | Sécu | Brute-force répertoires/fichiers web |
-| `SecLists` | Sécu | Wordlists de référence (cloné dans `~/tools/SecLists`) |
-| `gping` | CLI | `ping` avec graphique |
-| `glow` | CLI | Affichage Markdown dans le terminal |
-| `dysk` | CLI | Utilisation disque (tableau coloré, alternative à `df`) — utilisé par le motd |
+| `ansible` | `iac` | Automatisation/configuration |
+| `tenv` | `iac` | Version manager Terraform/OpenTofu/Terragrunt |
+| `lazydocker` | `docker` | TUI Docker |
+| `dive` | `docker` | Analyse des layers d'image Docker |
+| `k9s` | `k8s` | TUI pour cluster k8s |
+| `rustscan` | `secu` | Scanner de ports rapide |
+| `nuclei` | `secu` | Scanner de vulnérabilités basé templates |
+| `gobuster` | `secu` | Brute-force répertoires/fichiers web |
+| `SecLists` | `secu` | Wordlists de référence (cloné dans `~/tools/SecLists`) |
+| `lazygit` | `extra` | TUI git |
+| `gping` | `extra` | `ping` avec graphique |
+| `glow` | `extra` | Affichage Markdown dans le terminal |
+| `dysk` | `base` | Utilisation disque (tableau coloré, alternative à `df`) |
 
-Tous les outils de ce tableau (sauf `ansible` et `direnv`, packagés sur
-Debian/RHEL), ainsi que Starship et Sheldon, sont installés en binaire depuis
-leur release GitHub (x86_64 ou arm64) dans `~/.local/bin` — ça ne nécessite pas
-de droits root et fonctionne aussi bien sur Debian que RHEL-like.
+Tous les outils de ce tableau (sauf `ansible`, packagé sur Debian/RHEL), ainsi
+que Starship et Sheldon, sont installés en binaire depuis leur release GitHub
+(x86_64 ou arm64) dans `~/.local/bin` ou dans le dossier donné par
+`--bin-dir` — ça ne nécessite pas de droits root et fonctionne aussi bien sur
+Debian que RHEL-like.
 
 ### Versions figées et sommes de contrôle
 
@@ -177,9 +268,12 @@ ensuite, pas qu'elle était saine au départ.
 ## Intégration continue
 
 À chaque push, [.github/workflows/lint.yml](.github/workflows/lint.yml) lance
-ShellCheck sur les scripts, vérifie la syntaxe Zsh de `.zshrc` et des alias, et
-contrôle que chaque outil de `tools.list` a bien une version figée par
-architecture dans `tools.lock`.
+ShellCheck sur les scripts et `.bashrc`, vérifie la syntaxe Zsh et Bash des
+fichiers de shell, contrôle que chaque alias lance une commande qui existe
+([tests/check-aliases.sh](tests/check-aliases.sh)), qu'aucune adresse IP, clé
+ou chemin personnel n'est présent ([tests/check-leaks.sh](tests/check-leaks.sh))
+et que chaque outil de
+`tools.list` a bien une version figée par architecture dans `tools.lock`.
 
 ## Applis de référence
 

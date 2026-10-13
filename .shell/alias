@@ -9,17 +9,11 @@ if [ -f /var/log/messages ]; then
     alias log="sudo tail -f /var/log/messages"
 elif [ -f /var/log/syslog ]; then
     alias log="sudo tail -f /var/log/syslog"
-else
+elif command -v journalctl >/dev/null 2>&1; then
     alias log="sudo journalctl -f"
 fi
 alias grep="grep --color=auto"
-alias igrep="grep -i"
-alias lh="ls -lh --color=auto"
-alias la="ls -a --color=auto"
-alias ..="cd .."
-alias up="sudo -i"
 alias addsrv="~/.shell/add_srv.sh"
-alias remotefile="~/.shell/remote_files.sh"
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #               Eza                      #
@@ -28,10 +22,8 @@ alias remotefile="~/.shell/remote_files.sh"
 if command -v eza >/dev/null 2>&1; then
     alias ls='eza --all --long --group --group-directories-first --icons --header --time-style long-iso'
     alias ll='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
-    alias lart='eza --all --long --group --icons --header --time-style long-iso --sort=modified --reverse'
 else
     alias ll='ls -lart --color=auto'
-    alias lart='ls -lart --color=auto'
 fi
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
@@ -53,87 +45,51 @@ fi
 command -v btop >/dev/null 2>&1 && alias top='btop'
 
 
-# Alias des serveurs pour une connexion rapide (fichier local, non versionné)
-[ -f ~/.shell/alias_srv ] && source ~/.shell/alias_srv
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+#               Serveurs                 #
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 
-# Alias du man
-alias adocker="~/.shell/man_alias_docker.sh"
-alias asys="~/.shell/man_alias_sys.sh"
-alias agit="~/.shell/man_alias_git.sh"
-alias asysf="~/.shell/man_alias_sys_a.sh"
+# Un alias par Host de ~/.ssh/config : `monserveur` équivaut à `ssh monserveur`.
+# ~/.ssh/config est la seule liste des serveurs (`addsrv` y ajoute une entrée).
+# Sont ignorés : les motifs (*, ?), les adresses IP et les noms qui
+# masqueraient une commande existante. Les fichiers Include ne sont pas lus.
+if [ -r ~/.ssh/config ]; then
+    for _srv in $(awk 'tolower($1) == "host" { for (i = 2; i <= NF; i++) if ($i ~ /^[A-Za-z][A-Za-z0-9_-]*$/) print $i }' ~/.ssh/config); do
+        command -v "$_srv" >/dev/null 2>&1 || alias "$_srv"="ssh $_srv"
+    done
+    unset _srv
+fi
+
+# Alias locaux en plus (RDP, connexion différente de ~/.ssh/config...) :
+# fichier non versionné, chargé en dernier, donc prioritaire
+[ -f ~/.shell/alias_srv ] && source ~/.shell/alias_srv
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #               Docker                   #
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 
-# Alias Docker
-alias dstopa="docker stop \$(docker ps -a -q)"
-alias dstatus='docker ps --format "table{{.ID}}\t{{.Image}}\t{{.RunningFor}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}"'
-alias dstarta="docker start \$(docker ps -a -q)"               
-alias drm="docker rm \$(docker ps -a -q)"                     
-alias dcleanc="docker rm \$(docker ps -f status=exited -q)"  
-alias dcleani="docker rmi \$(docker images -f dangling=true -q)" 
-alias dlogs="docker logs -f"                                   
-alias dexec="docker exec -it"                                 
-alias dbuild="docker build -t"                               
-alias dip="docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'" 
-
-# Alias Docker Compose (plugin v2 : "docker compose", sans tiret)
-alias dcup="docker compose up -d"
-alias dcdown="docker compose down"
-alias dcrestart="docker compose restart"
-alias dclogs="docker compose logs -f"
-alias dcrebuild="docker compose up -d --build"
-alias dcls="docker compose ps"
+# Alias Docker (Compose : plugin v2, "docker compose" sans tiret)
+if command -v docker >/dev/null 2>&1; then
+    alias dstatus='docker ps --format "table{{.ID}}\t{{.Image}}\t{{.RunningFor}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}"'
+    alias dlogs="docker logs -f"
+    alias dexec="docker exec -it"
+    alias dcup="docker compose up -d"
+fi
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #               Git                       #
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
-alias gco='git checkout'
-alias gf='git fetch'
-alias grh='git reset --hard'
-alias gstash='git stash'
-alias gpop='git stash pop'
-alias gsl='git stash list'
-alias gplr='git pull --rebase'
-alias glast='git show --stat'
-alias gca='git commit --amend'
-alias girb='git rebase -i'
-alias gtags='git tag -l'
-alias gbd-remote='git push origin --delete'
-alias gsall='git status --short --branch'
-
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
-#       Alias pour le calendrier         #
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
-
-# View the calendar by typing the first three letters of the month.
-alias jan='cal -m 01'
-alias feb='cal -m 02'
-alias mar='cal -m 03'
-alias apr='cal -m 04'
-alias may='cal -m 05'
-alias jun='cal -m 06'
-alias jul='cal -m 07'
-alias aug='cal -m 08'
-alias sep='cal -m 09'
-alias oct='cal -m 10'
-alias nov='cal -m 11'
-alias dec='cal -m 12'
+# Le reste (st, co, br, cm, amend, last, lg...) est dans git/aliases.gitconfig
+if command -v git >/dev/null 2>&1; then
+    alias gf='git fetch'
+    alias gstash='git stash'
+    alias gpop='git stash pop'
+    alias girb='git rebase -i'
+fi
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
 #            Custom Functions            #
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
-
-# Recherche rapide dans l'historique
-h() {
-    history | grep "$1"
-}
-
-# Aller à un répertoire spécifique
-cdd() {
-    cd "$1" || echo "Le répertoire n'existe pas."
-}
 
 # Extraire automatiquement les fichiers
 extract() {
@@ -157,24 +113,46 @@ extract() {
     fi
 }
 
-# Rechercher un fichier par nom
+# Rechercher un fichier par nom (motif shell : ff '*.yml'), avec fd si présent
 ff() {
-    find . -name "$1"
+    if command -v fd >/dev/null 2>&1; then
+        command fd --hidden --glob "$1"
+    elif command -v fdfind >/dev/null 2>&1; then
+        fdfind --hidden --glob "$1"
+    else
+        find . -name "$1"
+    fi
 }
 
-# Recherche d'un contenu dans les fichiers
+# Rechercher un mot dans les fichiers, avec ripgrep si présent
+# (ripgrep ignore ce qui est listé dans .gitignore)
 fstr() {
-    grep -rnw . -e "$1"
+    if command -v rg >/dev/null 2>&1; then
+        rg --line-number --word-regexp --hidden --glob '!.git' -e "$1"
+    else
+        grep -rnw . -e "$1"
+    fi
+}
+
+# Met à jour les dotfiles : récupère la dernière version du dépôt, refait les
+# liens et aligne les binaires déjà installés sur les versions de tools.lock
+dotup() {
+    local repo
+    repo=$(readlink -f "$HOME/.shell") || return 1
+    "${repo%/.shell}/install.sh" --upgrade "$@"
+}
+
+# Ansible : `ap` simule (--check --diff), `apgo` applique pour de bon
+ap() {
+    ansible-playbook --check --diff "$@"
+}
+apgo() {
+    ansible-playbook --diff "$@"
 }
 
 # Créer un répertoire et entrer dedans
 mkcd() {
     mkdir -p "$1" && cd "$1" || return
-}
-
-# Remonter les processus les plus gourmands en mémoire
-topmem() {
-    ps aux --sort=-%mem | head -n 10
 }
 
 # Remonter les processus les plus gourmands en CPU

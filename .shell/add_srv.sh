@@ -1,14 +1,14 @@
 #!/bin/bash
 #
-# Ajoute un serveur : une entrée Host dans ~/.ssh/config et un alias de
-# connexion dans ~/.shell/alias_srv (fichier local, non versionné).
+# Ajoute un serveur : une entrée Host dans ~/.ssh/config. L'alias de
+# connexion (le nom du serveur) en découle : ~/.shell/alias en crée un par
+# Host à l'ouverture du shell.
 
 set -euo pipefail
 
 SSH_DIR="$HOME/.ssh"
 KEY_DIR="$SSH_DIR/KEY"
 SSH_CONFIG="$SSH_DIR/config"
-ALIAS_FILE="$HOME/.shell/alias_srv"
 
 # ask <question> : lit une réponse non vide
 ask() {
@@ -23,7 +23,7 @@ mkdir -p "$KEY_DIR"
 chmod 700 "$SSH_DIR" "$KEY_DIR"
 # Clés privées en 600 (sans erreur si le dossier est vide)
 find "$KEY_DIR" -maxdepth 1 -type f ! -name '*.pub' -exec chmod 600 {} +
-touch "$SSH_CONFIG" "$ALIAS_FILE"
+touch "$SSH_CONFIG"
 chmod 600 "$SSH_CONFIG"
 
 target_server=$(ask "Entrez le nom du serveur cible: ")
@@ -35,10 +35,6 @@ fi
 # Refuse les doublons plutôt que d'empiler des entrées contradictoires
 if grep -qE "^[[:space:]]*Host[[:space:]]+${target_server//./\\.}[[:space:]]*$" "$SSH_CONFIG"; then
     echo "Erreur : un Host '$target_server' existe déjà dans $SSH_CONFIG." >&2
-    exit 1
-fi
-if grep -qE "^[[:space:]]*alias[[:space:]]+${target_server//./\\.}=" "$ALIAS_FILE"; then
-    echo "Erreur : un alias '$target_server' existe déjà dans $ALIAS_FILE." >&2
     exit 1
 fi
 
@@ -79,7 +75,5 @@ Host $target_server
     ConnectionAttempts 3
 EOF
 
-echo "alias ${target_server}='ssh -i ${ssh_key} ${ssh_user}@${server_address}'" >> "$ALIAS_FILE"
-
 echo "Configuration SSH pour $target_server ajoutée dans $SSH_CONFIG."
-echo "Alias '$target_server' ajouté dans $ALIAS_FILE (ouvre un nouveau shell ou lance 'reload')."
+echo "Connexion : 'ssh $target_server', ou simplement '$target_server' après 'reload'."

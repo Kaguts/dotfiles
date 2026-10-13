@@ -1,0 +1,58 @@
+# Contrôle quotidien : le dépôt des dotfiles est-il en retard sur sa version
+# en ligne ? Fichier sourcé par .zshrc et .bashrc (valide dans les deux).
+#
+# Une seule interrogation par jour (résultat gardé dans ~/.cache/dotfiles),
+# limitée à 4 secondes, sans jamais demander de mot de passe. Rien n'est
+# téléchargé ni modifié : c'est `dotup` qui installe la nouvelle version.
+# Pour désactiver : touch ~/.config/dotfiles/no-update-check
+
+# Adresse à interroger. Un dépôt GitHub cloné en SSH est lu par son adresse
+# publique HTTPS, pour ne dépendre ni d'une clé ni d'un agent SSH.
+_dotfiles_remote_url() {
+    local url
+    url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
+    case "$url" in
+        git@github.com:*)       url="https://github.com/${url#git@github.com:}" ;;
+        ssh://git@github.com/*) url="https://github.com/${url#ssh://git@github.com/}" ;;
+    esac
+    printf '%s\n' "$url"
+}
+
+# _dotfiles_behind <dépôt> : vrai si la version en ligne contient un commit
+# absent du dépôt local. Faux si à jour, en avance, ou si le réseau ne répond pas.
+_dotfiles_behind() {
+    local url remote
+    url=$(_dotfiles_remote_url "$1") || return 1
+    remote=$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=3' \
+        timeout 4 git -C "$1" ls-remote --quiet "$url" HEAD 2>/dev/null | cut -f1)
+    [ -n "$remote" ] || return 1
+    ! git -C "$1" cat-file -e "${remote}^{commit}" 2>/dev/null
+}
+
+_dotfiles_daily_check() {
+    local repo stamp today last="" etat=""
+    [ -e "$HOME/.config/dotfiles/no-update-check" ] && return 0
+    command -v git >/dev/null 2>&1 || return 0
+    # ~/.shell est un lien vers le dossier .shell du dépôt
+    repo=$(readlink -f "$HOME/.shell" 2>/dev/null) || return 0
+    repo="${repo%/.shell}"
+    [ -d "$repo/.git" ] || return 0
+
+    stamp="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/last-check"
+    today=$(date +%F)
+    [ -r "$stamp" ] && read -r last etat < "$stamp"
+    if [ "$last" != "$today" ]; then
+        etat="ok"
+        _dotfiles_behind "$repo" && etat="maj"
+        mkdir -p "${stamp%/*}" && printf '%s %s\n' "$today" "$etat" > "$stamp"
+    fi
+    if [ "$etat" = "maj" ]; then
+        echo "dotfiles : une nouvelle version est en ligne. Lance 'dotup' pour l'installer."
+    fi
+    return 0
+}
+
+# Shell interactif uniquement
+case $- in
+    *i*) _dotfiles_daily_check ;;
+esac

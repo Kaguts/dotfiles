@@ -16,14 +16,16 @@ qui remplace Oh My Zsh dans ce setup (chargement plus rapide, config TOML).
 | `zsh-autosuggestions` | Suggère une commande en fonction de l'historique (flèche droite pour accepter) |
 | `zsh-syntax-highlighting` | Colore la commande tapée (vert = valide, rouge = invalide) |
 | `starship` | Charge le prompt Starship (config dans `../starship.toml`) |
-| `zoxide` | Charge `zoxide init zsh` — navigation intelligente entre dossiers (`z <dossier>`) |
-| `direnv` | Charge `direnv hook zsh` — active les `.envrc` par dossier (`direnv allow`) |
+| `fzf` | Raccourcis fzf : Ctrl-R (historique), Ctrl-T (fichiers), Alt-C (dossiers) |
+| `zoxide` | Charge `zoxide init zsh --cmd cd` — `cd` retient les dossiers visités (`cd <mot-clé>`, `cdi`) |
 
 ⚠️ **Ordre important** (l'ordre dans `plugins.toml` = ordre de chargement) :
 
 1. `zsh-completions` doit ajouter ses complétions au `fpath` **avant** `compinit`
 2. `compinit` doit tourner **avant** `fzf-tab`
-3. `zsh-autosuggestions` et `zsh-syntax-highlighting` doivent être chargés
+3. `fzf` doit être chargé **après** `fzf-tab` : il reprend Tab pour `**` et
+   lui rend la main dans les autres cas
+4. `zsh-autosuggestions` et `zsh-syntax-highlighting` doivent être chargés
    **en dernier** (après `fzf-tab`), car ils enveloppent des widgets ZLE —
    les charger trop tôt casse `fzf-tab`.
 

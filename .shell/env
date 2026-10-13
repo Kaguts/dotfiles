@@ -1,0 +1,60 @@
+# Environnement commun à zsh (.zshrc) et bash (.bashrc).
+# Fichier sourcé, jamais exécuté : il doit rester valide dans les deux shells.
+
+# Réglages écrits par install.sh. DOTFILES_BIN : dossier des binaires quand
+# ce n'est pas ~/.local/bin (serveur sans droits root, option --bin-dir).
+[ -f "$HOME/.config/dotfiles/env" ] && . "$HOME/.config/dotfiles/env"
+
+# Ajoute un dossier en tête du PATH, sans doublon quand on recharge le shell
+_path_prepend() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1:$PATH" ;;
+    esac
+}
+_path_prepend "$HOME/.local/bin"
+[ -n "${DOTFILES_BIN:-}" ] && _path_prepend "$DOTFILES_BIN"
+
+# Éditeur par défaut
+if command -v vim >/dev/null 2>&1; then
+    export EDITOR='vim'
+else
+    export EDITOR='vi'
+fi
+
+# fzf : liste les fichiers avec fd (plus rapide, ignore .git) quand il est là
+if command -v fd >/dev/null 2>&1; then
+    export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
+elif command -v fdfind >/dev/null 2>&1; then
+    export FZF_DEFAULT_COMMAND='fdfind --type f --hidden --exclude .git'
+fi
+[ -n "${FZF_DEFAULT_COMMAND:-}" ] && export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+
+# nvm, chargé à la demande : nvm.sh coûte ~0,2 s à chaque ouverture de shell.
+# Le node par défaut est mis dans le PATH tout de suite (node, npm et les
+# binaires globaux restent disponibles) ; nvm.sh n'est lu qu'au premier `nvm`.
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    _nvm_default=""
+    [ -r "$NVM_DIR/alias/default" ] && read -r _nvm_default < "$NVM_DIR/alias/default"
+    _nvm_node=$(find "$NVM_DIR/versions/node" -mindepth 1 -maxdepth 1 -name "v${_nvm_default#v}*" 2>/dev/null | sort -V | tail -n 1)
+    # Alias non numérique (lts/*, node...) : on prend la version la plus récente
+    [ -z "$_nvm_node" ] && _nvm_node=$(find "$NVM_DIR/versions/node" -mindepth 1 -maxdepth 1 2>/dev/null | sort -V | tail -n 1)
+    [ -n "$_nvm_node" ] && _path_prepend "$_nvm_node/bin"
+    unset _nvm_default _nvm_node
+
+    nvm() {
+        unset -f nvm
+        . "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+        nvm "$@"
+    }
+fi
+
+# bun (si installé)
+if [ -d "$HOME/.bun" ]; then
+    export BUN_INSTALL="$HOME/.bun"
+    _path_prepend "$BUN_INSTALL/bin"
+fi
+
+export PATH

@@ -16,7 +16,8 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck -s bash install.sh update-tools.sh wezterm/plugins.sh \
-            .shell/add_srv.sh .shell/motd .shell/man_alias_*.sh
+            .shell/add_srv.sh .shell/motd .bashrc .shell/update-check \
+            tests/check-aliases.sh tests/check-leaks.sh .githooks/pre-commit
 
       - name: Syntaxe Zsh
         run: |
@@ -24,6 +25,20 @@ jobs:
           sudo apt-get install -y -qq zsh
           zsh -n .zshrc
           zsh -n .shell/alias
+          zsh -n .shell/env
+          zsh -n .shell/update-check
+
+      - name: Syntaxe Bash des fichiers partagés
+        run: |
+          bash -n .bashrc
+          bash -n .shell/alias
+          bash -n .shell/env
+
+      - name: Alias sans cible
+        run: tests/check-aliases.sh
+
+      - name: Aucune information personnelle (dépôt public)
+        run: tests/check-leaks.sh
 
       - name: Cohérence tools.list / tools.lock
         run: |

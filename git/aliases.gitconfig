@@ -1,4 +1,4 @@
-# Alias git complémentaires (en plus de ceux de .shell/alias : gco, gf, grh...).
+# Alias git complémentaires (en plus de ceux de .shell/alias : gf, gstash, gpop, girb).
 #
 # Ce fichier ne contient PAS ton identité (user.name/email) : il est pensé
 # pour être inclus depuis ton ~/.gitconfig existant, sans l'écraser.

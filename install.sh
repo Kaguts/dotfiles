@@ -12,21 +12,46 @@
 #   - x86_64 et arm64
 #   - Sans droits root/sudo : les paquets système sont ignorés (avec un
 #     message indiquant ce qu'il faudra installer via un admin), mais les
-#     outils installables en binaire dans ~/.local/bin (sans root) le sont
-#     quand même.
+#     outils installables en binaire le sont quand même, dans ~/.local/bin
+#     ou dans le dossier donné par --bin-dir.
 #
 # Usage :
 #   ./install.sh            # liens symboliques uniquement
 #   ./install.sh --update   # recrée les liens symboliques (utile après avoir
 #                            # déplacé/renommé le dossier du repo) et nettoie
 #                            # les anciennes références dans ~/.gitconfig
-#   ./install.sh --tools    # liens symboliques + installation des outils
-#   ./install.sh --sysadmin # comme --update + --tools, sans les outils sécu
-#                            # (gobuster, nmap, lynis, rustscan, nuclei) ni SecLists
+#   ./install.sh --tools    # liens + outils du groupe "base" (shell, prompt,
+#                            # eza, bat, fd, ripgrep, fzf, zoxide, delta...)
+#   ./install.sh --with GROUPES
+#                            # comme --tools, avec en plus les groupes cités,
+#                            # séparés par des virgules : extra (lazygit,
+#                            # gping, glow), docker (lazydocker, dive),
+#                            # k8s (k9s), iac (ansible, tenv), secu (nmap,
+#                            # lynis, gobuster, rustscan, nuclei, SecLists),
+#                            # ou "all" pour tout
+#   ./install.sh --sysadmin # --update + --with extra,docker,k8s,iac
+#   ./install.sh --bash     # met aussi en place ~/.bashrc (serveurs sans zsh)
+#   ./install.sh --bin-dir DOSSIER
+#                            # installe les binaires dans DOSSIER au lieu de
+#                            # ~/.local/bin ; le choix est mémorisé et le
+#                            # dossier ajouté au PATH du shell
+#   ./install.sh --no-root  # n'essaie pas sudo : aucun paquet système, tout
+#                            # ce qui peut l'être est installé en binaire
+#   ./install.sh --upgrade  # récupère la dernière version du dépôt (git pull),
+#                            # refait les liens et met les binaires déjà
+#                            # installés aux versions de tools.lock ; ne touche
+#                            # pas aux paquets système (alias shell : dotup)
+#   ./install.sh --skip-packages
+#                            # avec --tools : binaires seulement, sans apt/dnf
+#   ./install.sh --check    # ne modifie rien : contrôle les liens, la config
+#                            # git, le PATH, les outils et les alias
 #   ./install.sh --wezterm-windows
 #                            # (WSL) copie la config WezTerm dans le profil
 #                            # Windows ; combinable avec les autres options
 #   ./install.sh --help
+#
+# Exemple, serveur sans droits root :
+#   ./install.sh --no-root --bash --tools --bin-dir /data/outils/bin
 
 set -euo pipefail
 
@@ -37,20 +62,101 @@ usage() {
     sed -n '/^# Usage :/,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
+# Choix mémorisés d'une exécution à l'autre (dossier des binaires, groupes
+# d'outils). Ce fichier est aussi lu par ~/.shell/env pour le PATH.
+STATE_FILE="$HOME/.config/dotfiles/env"
+DOTFILES_BIN=""
+DOTFILES_GROUPS=""
+# shellcheck disable=SC1090
+[ -f "$STATE_FILE" ] && . "$STATE_FILE"
+
+ALL_GROUPS="extra docker k8s iac secu"
+
 DO_UPDATE=0
 DO_TOOLS=0
-SKIP_SECURITY=0
+DO_BASH=0
+DO_CHECK=0
+DO_UPGRADE=0
+SKIP_PACKAGES=0
+NO_ROOT=0
 DO_WEZTERM_WINDOWS=0
-for arg in "$@"; do
-    case "$arg" in
+BIN_DIR="${DOTFILES_BIN:-$HOME/.local/bin}"
+TOOL_GROUPS="$DOTFILES_GROUPS"
+SAVE_STATE=0
+
+# set_groups <liste séparée par des virgules> : valide puis retient les groupes
+set_groups() {
+    local g list=""
+    for g in ${1//,/ }; do
+        case "$g" in
+            all) list="$ALL_GROUPS" ;;
+            extra|docker|k8s|iac|secu) list="$list $g" ;;
+            base) ;;
+            *) echo "Groupe inconnu : $g (groupes : ${ALL_GROUPS// /, }, all)" >&2; exit 2 ;;
+        esac
+    done
+    TOOL_GROUPS=$(echo "$list" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/^ *//; s/ *$//; s/ /,/g')
+    SAVE_STATE=1
+}
+
+# has_group <groupe> : vrai si le groupe est demandé ("base" l'est toujours)
+has_group() {
+    [ "$1" = "base" ] && return 0
+    case ",$TOOL_GROUPS," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
         --update)          DO_UPDATE=1 ;;
         --tools)           DO_TOOLS=1 ;;
-        --sysadmin)        DO_UPDATE=1; DO_TOOLS=1; SKIP_SECURITY=1 ;;
+        --with|--with=*)
+            if [ "$1" = "--with" ]; then
+                [ $# -ge 2 ] || { echo "--with attend une liste de groupes" >&2; exit 2; }
+                shift
+                set_groups "$1"
+            else
+                set_groups "${1#--with=}"
+            fi
+            DO_TOOLS=1
+            ;;
+        --sysadmin)        DO_UPDATE=1; DO_TOOLS=1; set_groups "extra,docker,k8s,iac" ;;
+        --bash)            DO_BASH=1 ;;
+        --bin-dir|--bin-dir=*)
+            if [ "$1" = "--bin-dir" ]; then
+                [ $# -ge 2 ] || { echo "--bin-dir attend un dossier" >&2; exit 2; }
+                shift
+                BIN_DIR="$1"
+            else
+                BIN_DIR="${1#--bin-dir=}"
+            fi
+            SAVE_STATE=1
+            ;;
+        --no-root)         NO_ROOT=1 ;;
+        --upgrade)         DO_UPGRADE=1 ;;
+        --skip-packages)   SKIP_PACKAGES=1 ;;
+        --check)           DO_CHECK=1 ;;
         --wezterm-windows) DO_WEZTERM_WINDOWS=1 ;;
         -h|--help)         usage; exit 0 ;;
-        *)                 echo "Option inconnue : $arg" >&2; usage >&2; exit 2 ;;
+        *)                 echo "Option inconnue : $1" >&2; usage >&2; exit 2 ;;
     esac
+    shift
 done
+
+# Le dossier des binaires : chemin absolu, sans caractère qui casserait le
+# fichier d'état (il est relu par le shell)
+BIN_DIR="${BIN_DIR/#\~/$HOME}"
+case "$BIN_DIR" in
+    /*) ;;
+    *) BIN_DIR="$PWD/$BIN_DIR" ;;
+esac
+BIN_DIR="${BIN_DIR%/}"
+case "$BIN_DIR" in
+    *[\'\"\$\`\\]*|*$'\n'*)
+        echo "Dossier refusé (guillemet, \$, \` ou antislash dans le chemin) : $BIN_DIR" >&2
+        exit 2
+        ;;
+esac
 
 IS_WSL=0
 if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
@@ -110,21 +216,231 @@ sync_wezterm_windows() {
     echo "  (copie, pas un lien : relance cette option après chaque modification)"
 }
 
+# Liens à créer : "fichier du repo:emplacement dans $HOME"
+LINKS=(
+    ".zshrc:.zshrc"
+    ".vimrc:.vimrc"
+    ".tmux.conf:.tmux.conf"
+    ".shell:.shell"
+    "wezterm:.config/wezterm"
+    "sheldon/plugins.toml:.config/sheldon/plugins.toml"
+    "starship.toml:.config/starship.toml"
+)
+GIT_ALIASES="$DOTFILES_DIR/git/aliases.gitconfig"
+LIST_FILE="$DOTFILES_DIR/tools.list"
+LOCK_FILE="$DOTFILES_DIR/tools.lock"
+# Binaires installés par ce script : "commande|url de l'archive", pour savoir
+# lesquels sont à remplacer quand tools.lock change de version
+INSTALLED_FILE="$HOME/.config/dotfiles/tools.installed"
+UPDATE_STAMP="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/last-check"
+
+# Le contrôle « en retard sur la version en ligne ? » est partagé avec le shell
+# shellcheck disable=SC1091
+. "$DOTFILES_DIR/.shell/update-check"
+
+# ---------------------------------------------------------------------------
+# --upgrade : récupère la dernière version puis se relance pour l'appliquer
+# ---------------------------------------------------------------------------
+if [ "$DO_UPGRADE" -eq 1 ]; then
+    command -v git >/dev/null 2>&1 || { echo "Erreur : git est requis pour --upgrade." >&2; exit 1; }
+    echo "==> Mise à jour du dépôt ($DOTFILES_DIR)"
+    before=$(git -C "$DOTFILES_DIR" rev-parse HEAD)
+    if ! git -C "$DOTFILES_DIR" pull --ff-only; then
+        echo "Erreur : 'git pull' a échoué (réseau, modifications locales en conflit ou" >&2
+        echo "historique divergent). Rien n'a été modifié : règle-le à la main dans le dépôt." >&2
+        exit 1
+    fi
+    after=$(git -C "$DOTFILES_DIR" rev-parse HEAD)
+    if [ "$before" = "$after" ]; then
+        echo "Dépôt déjà à jour."
+    else
+        git -C "$DOTFILES_DIR" --no-pager log --oneline "$before..$after"
+    fi
+    mkdir -p "$(dirname "$UPDATE_STAMP")"
+    echo "$(date +%F) ok" > "$UPDATE_STAMP"
+
+    # On relance le script : c'est sa nouvelle version qui doit s'appliquer.
+    # Les outils ne sont repris que s'ils avaient été installés par ce script.
+    next=(--update)
+    if [ -f "$INSTALLED_FILE" ] || [ -x "$BIN_DIR/starship" ] || [ -x "$BIN_DIR/sheldon" ]; then
+        next+=(--tools --skip-packages)
+    fi
+    echo
+    exec "$DOTFILES_DIR/install.sh" "${next[@]}"
+fi
+
+# tool_present <commande> : vrai si l'outil est disponible, sous son nom ou
+# sous celui du paquet Debian (batcat, fdfind), dans le PATH ou dans BIN_DIR
+tool_present() {
+    command -v "$1" >/dev/null 2>&1 && return 0
+    [ -x "$BIN_DIR/$1" ] && return 0
+    case "$1" in
+        bat) command -v batcat >/dev/null 2>&1 && return 0 ;;
+        fd)  command -v fdfind >/dev/null 2>&1 && return 0 ;;
+    esac
+    return 1
+}
+
+# Commandes fournies par les paquets système (pas par tools.list), par groupe
+pkg_commands() {
+    case "$1" in
+        base) echo "git curl vim tmux btop" ;;
+        iac)  echo "ansible" ;;
+        secu) echo "nmap lynis" ;;
+    esac
+}
+
+# report_tools : liste les outils absents. Ceux d'un groupe demandé comptent
+# comme manquants (code retour 1), les autres sont seulement mentionnés.
+report_tools() {
+    local missing="" optional="" tool group cmd
+    while IFS='|' read -r tool group _ <&3; do
+        case "$tool" in ''|\#*) continue ;; esac
+        tool_present "$tool" && continue
+        if has_group "$group"; then missing="$missing $tool"; else optional="$optional $tool($group)"; fi
+    done 3< "$LIST_FILE"
+    for group in base $ALL_GROUPS; do
+        for cmd in $(pkg_commands "$group"); do
+            tool_present "$cmd" && continue
+            if has_group "$group"; then missing="$missing $cmd"; else optional="$optional $cmd($group)"; fi
+        done
+    done
+    command -v zsh >/dev/null 2>&1 || command -v bash >/dev/null 2>&1 || missing="$missing zsh"
+
+    if [ -n "$missing" ]; then
+        echo "  Outils absents :$missing"
+    else
+        echo "  Tous les outils demandés sont présents (groupes : base${TOOL_GROUPS:+,$TOOL_GROUPS})."
+    fi
+    [ -n "$optional" ] && echo "  Non demandés (ajoute le groupe avec --with) :$optional"
+    [ -z "$missing" ]
+}
+
+# ---------------------------------------------------------------------------
+# --check : contrôle l'installation sans rien modifier
+# ---------------------------------------------------------------------------
+if [ "$DO_CHECK" -eq 1 ]; then
+    problems=0
+    ok()  { echo "  ok   $1"; }
+    bad() { echo "  !!   $1"; problems=$((problems + 1)); }
+
+    echo "==> Version"
+    if _dotfiles_behind "$DOTFILES_DIR"; then
+        bad "une nouvelle version est en ligne -> ./install.sh --upgrade (ou dotup)"
+    else
+        ok "dépôt à jour (ou version en ligne injoignable)"
+    fi
+
+    echo "==> Liens symboliques"
+    [ -L "$HOME/.bashrc" ] && LINKS+=(".bashrc:.bashrc")
+    for entry in "${LINKS[@]}"; do
+        src="$DOTFILES_DIR/${entry%%:*}"
+        dest="$HOME/${entry#*:}"
+        if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ]; then
+            ok "$dest"
+        elif [ -L "$dest" ]; then
+            bad "$dest pointe vers $(readlink "$dest") (attendu : $src) -> ./install.sh --update"
+        elif [ -e "$dest" ]; then
+            bad "$dest existe mais n'est pas un lien vers le repo -> ./install.sh"
+        else
+            bad "$dest absent -> ./install.sh"
+        fi
+    done
+    [ -L "$HOME/.bashrc" ] || echo "  --   ~/.bashrc non géré par le repo (optionnel : ./install.sh --bash)"
+
+    echo "==> Git"
+    if command -v git >/dev/null 2>&1; then
+        found=0
+        while IFS= read -r inc; do
+            inc_path="${inc/#\~/$HOME}"
+            [ "$inc_path" = "$GIT_ALIASES" ] && found=1
+            [ -e "$inc_path" ] || bad "include.path introuvable : $inc -> ./install.sh --update"
+        done < <(git config --global --get-all include.path 2>/dev/null || true)
+        if [ "$found" -eq 1 ]; then ok "alias git inclus ($GIT_ALIASES)"; else bad "alias git non inclus dans ~/.gitconfig -> ./install.sh"; fi
+    else
+        bad "git absent"
+    fi
+
+    echo "==> Dossier des binaires et PATH"
+    if [ -d "$BIN_DIR" ] && [ -w "$BIN_DIR" ]; then ok "$BIN_DIR"; else bad "$BIN_DIR absent ou non inscriptible"; fi
+    case ":$PATH:" in
+        *":$BIN_DIR:"*) ok "$BIN_DIR est dans le PATH" ;;
+        *) bad "$BIN_DIR n'est pas dans le PATH de ce shell (ouvre un nouveau shell ou lance 'reload')" ;;
+    esac
+
+    echo "==> Shell"
+    for f in .shell/add_srv.sh .shell/motd; do
+        if [ -x "$DOTFILES_DIR/$f" ]; then ok "$f exécutable"; else bad "$f absent ou non exécutable"; fi
+    done
+    if command -v zsh >/dev/null 2>&1; then
+        if command -v sheldon >/dev/null 2>&1 || [ -x "$BIN_DIR/sheldon" ]; then
+            if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/sheldon/plugins.lock" ]; then
+                ok "plugins Sheldon verrouillés"
+            else
+                bad "plugins Sheldon non installés -> sheldon lock --update"
+            fi
+        fi
+        [ "$(basename "${SHELL:-}")" = "zsh" ] || echo "  --   shell de connexion : ${SHELL:-inconnu} (zsh disponible : chsh -s \"$(command -v zsh)\")"
+    else
+        echo "  --   zsh absent : utilise la config bash (./install.sh --bash)"
+    fi
+
+    echo "==> Alias"
+    if "$DOTFILES_DIR/tests/check-aliases.sh"; then ok "chaque alias lance une commande existante"; else problems=$((problems + 1)); fi
+
+    echo "==> Outils"
+    report_tools || problems=$((problems + 1))
+
+    echo
+    if [ "$problems" -eq 0 ]; then
+        echo "Tout est en ordre."
+        exit 0
+    fi
+    echo "$problems point(s) à corriger."
+    exit 1
+fi
+
 # Requis par `set undofile` / `set undodir` dans .vimrc
 mkdir -p "$HOME/.vim/undodir" "$HOME/.local/bin"
+if ! mkdir -p "$BIN_DIR" 2>/dev/null || [ ! -w "$BIN_DIR" ]; then
+    echo "Erreur : impossible d'écrire dans $BIN_DIR (choisis un autre dossier avec --bin-dir)." >&2
+    exit 1
+fi
+
+# Mémorise le dossier des binaires et les groupes ; ~/.shell/env relit ce
+# fichier pour mettre le dossier dans le PATH
+if [ "$SAVE_STATE" -eq 1 ]; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    {
+        echo "# Écrit par install.sh (--bin-dir, --with) : ne pas modifier à la main."
+        [ "$BIN_DIR" != "$HOME/.local/bin" ] && echo "DOTFILES_BIN='$BIN_DIR'"
+        echo "DOTFILES_GROUPS='$TOOL_GROUPS'"
+    } > "$STATE_FILE"
+fi
 
 echo "==> Mise en place des liens symboliques"
-link ".zshrc"             ".zshrc"
-link ".vimrc"              ".vimrc"
-link ".tmux.conf"          ".tmux.conf"
-link ".shell"              ".shell"
-link "wezterm"             ".config/wezterm"
-link "sheldon/plugins.toml" ".config/sheldon/plugins.toml"
-link "starship.toml"       ".config/starship.toml"
+# ~/.bashrc déjà géré par le repo : il le reste (cas d'un --update / --upgrade)
+case "$(readlink "$HOME/.bashrc" 2>/dev/null || true)" in
+    "$DOTFILES_DIR/.bashrc") DO_BASH=1 ;;
+esac
+[ "$DO_BASH" -eq 1 ] && LINKS+=(".bashrc:.bashrc")
+for entry in "${LINKS[@]}"; do
+    link "${entry%%:*}" "${entry#*:}"
+done
 
-# Alias git : inclus depuis ~/.gitconfig sans écraser l'identité existante
-GIT_ALIASES="$DOTFILES_DIR/git/aliases.gitconfig"
-if command -v git >/dev/null 2>&1; then
+# bash ne lit ~/.bashrc à la connexion (SSH) que si un fichier de profil le
+# lui demande : on en crée un s'il n'y en a aucun
+if [ "$DO_BASH" -eq 1 ] && [ ! -e "$HOME/.bash_profile" ] && [ ! -e "$HOME/.bash_login" ] && [ ! -e "$HOME/.profile" ]; then
+    # shellcheck disable=SC2016
+    echo '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"' > "$HOME/.bash_profile"
+    echo "Créé       : ~/.bash_profile (charge ~/.bashrc à la connexion)"
+fi
+
+# Alias git : inclus depuis ~/.gitconfig sans écraser l'identité existante.
+# Rappelé après l'installation des paquets : sur une machine neuve, git
+# n'existe pas encore à ce stade.
+setup_git_include() {
+    command -v git >/dev/null 2>&1 || return 0
     if ! git config --global --get-all include.path 2>/dev/null | grep -qxF "$GIT_ALIASES"; then
         git config --global --add include.path "$GIT_ALIASES"
         echo "Ajouté        : include.path = $GIT_ALIASES dans ~/.gitconfig"
@@ -144,6 +460,15 @@ if command -v git >/dev/null 2>&1; then
             esac
         done < <(git config --global --get-all include.path 2>/dev/null || true)
     fi
+}
+setup_git_include
+
+# Dépôt public : le hook pre-commit refuse un commit qui contiendrait une
+# information propre à la machine (voir tests/check-leaks.sh)
+if command -v git >/dev/null 2>&1 && [ -d "$DOTFILES_DIR/.git" ] \
+    && [ "$(git -C "$DOTFILES_DIR" config --local core.hooksPath 2>/dev/null || true)" != ".githooks" ]; then
+    git -C "$DOTFILES_DIR" config --local core.hooksPath .githooks
+    echo "Activé     : hook pre-commit du dépôt (contrôle anti-fuite)"
 fi
 
 if [ -d "$BACKUP_DIR" ]; then
@@ -165,7 +490,8 @@ if [ "$DO_TOOLS" -eq 0 ]; then
     if [ "$DO_UPDATE" -eq 1 ]; then
         echo "Liens symboliques et configuration git mis à jour."
     else
-        echo "Astuce : relance avec '--tools' pour installer les outils CLI de la stack."
+        echo "Astuce : relance avec '--tools' pour installer les outils CLI de la stack,"
+        echo "         ou avec '--check' pour contrôler l'installation."
     fi
     exit 0
 fi
@@ -176,7 +502,9 @@ fi
 
 SUDO=""
 HAS_ROOT=0
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$NO_ROOT" -eq 1 ] || [ "$SKIP_PACKAGES" -eq 1 ]; then
+    :
+elif [ "$(id -u)" -eq 0 ]; then
     HAS_ROOT=1
 elif command -v sudo >/dev/null 2>&1 && sudo -v 2>/dev/null; then
     HAS_ROOT=1
@@ -227,7 +555,7 @@ pkg_install() {
     done
     if [ -n "$missing" ]; then
         echo "  ! Paquets indisponibles sur ce système :$missing"
-        echo "    (ceux qui existent en binaire seront installés dans ~/.local/bin plus bas)"
+        echo "    (ceux qui existent en binaire seront installés dans $BIN_DIR plus bas)"
     fi
     return 0
 }
@@ -236,30 +564,36 @@ pkg_install() {
 # Paquets système (nécessitent root/sudo + apt ou dnf/yum)
 # ---------------------------------------------------------------------------
 
-if [ "$HAS_ROOT" -eq 0 ]; then
+# Paquets par famille de distribution, selon les groupes demandés.
+# eza, lazygit, gping, glow... n'existent pas sur toutes les versions
+# (Debian 12, Ubuntu 22.04), et pas du tout sur RHEL-like : pkg_install tolère
+# les absents, qui sont ensuite installés en binaire.
+# xclip est requis pour `set clipboard=unnamedplus` (.vimrc) ; util-linux-user
+# fournit chsh (pour passer à zsh).
+DEB_PKGS="zsh curl git tar unzip eza bat fd-find ripgrep fzf zoxide btop tmux httpie git-delta vim xclip bash-completion"
+RHEL_PKGS="zsh curl git tar unzip util-linux-user ripgrep fzf bat fd-find tmux btop httpie vim-enhanced xclip bash-completion"
+if has_group extra; then DEB_PKGS="$DEB_PKGS lazygit gping glow"; fi
+if has_group iac;   then DEB_PKGS="$DEB_PKGS ansible"; fi
+if has_group secu;  then DEB_PKGS="$DEB_PKGS lynis nmap gobuster"; RHEL_PKGS="$RHEL_PKGS nmap lynis"; fi
+
+if [ "$SKIP_PACKAGES" -eq 1 ]; then
+    echo
+    echo "==> Paquets système laissés au gestionnaire de paquets (apt/dnf)"
+elif [ "$HAS_ROOT" -eq 0 ]; then
     echo
     echo "==> Paquets système ignorés (pas de droits root/sudo)"
-    echo "  Demande à un admin d'installer (selon la distro) :"
-    echo "  Debian/Ubuntu : zsh eza bat fd-find ripgrep fzf zoxide btop tmux lazygit lynis nmap httpie direnv ansible gobuster gping git-delta glow vim xclip unzip"
-    echo "  RHEL-like     : epel-release zsh ripgrep fzf bat fd-find tmux btop nmap lynis httpie direnv ansible-core vim-enhanced xclip git unzip util-linux-user"
-    echo "  Les outils restants seront tout de même installés en binaire dans ~/.local/bin ci-dessous."
+    echo "  Les outils disponibles en binaire sont installés dans $BIN_DIR ci-dessous."
+    echo "  Pour le reste (zsh, tmux, btop, vim...), demande à un admin d'installer :"
+    echo "  Debian/Ubuntu : $DEB_PKGS"
+    echo "  RHEL-like     : epel-release $RHEL_PKGS$(has_group iac && echo ' ansible-core')"
 else
     case "$PKG_FAMILY" in
         debian)
             echo
             echo "==> Installation des outils CLI (apt)"
             $SUDO apt-get update
-            # eza, lazygit, gping, glow... n'existent pas sur toutes les versions
-            # (Debian 12, Ubuntu 22.04) : pkg_install tolère les absents.
-            pkg_install \
-                zsh curl git tar unzip \
-                eza bat fd-find ripgrep fzf zoxide btop tmux \
-                lazygit httpie \
-                direnv ansible gping git-delta glow \
-                vim xclip   # xclip requis pour `set clipboard=unnamedplus` (.vimrc)
-            if [ "$SKIP_SECURITY" -eq 0 ]; then
-                pkg_install lynis nmap gobuster
-            fi
+            # shellcheck disable=SC2086
+            pkg_install $DEB_PKGS
             ;;
         rhel)
             if [ "$OS_ID" != "fedora" ]; then
@@ -279,21 +613,14 @@ else
 
             echo
             echo "==> Installation des outils CLI ($PKG_MGR)"
-            # eza, zoxide, lazygit, gobuster, gping, git-delta (delta), glow,
-            # lazydocker, k9s, dive, tenv, rustscan, nuclei ne sont pas
-            # packagés sur RHEL-like : ils sont installés en binaire plus bas.
-            # util-linux-user fournit chsh (pour passer à zsh).
-            pkg_install \
-                zsh curl git tar unzip util-linux-user \
-                ripgrep fzf bat fd-find tmux btop httpie \
-                direnv vim-enhanced xclip
-            if [ "$SKIP_SECURITY" -eq 0 ]; then
-                pkg_install nmap lynis
-            fi
+            # shellcheck disable=SC2086
+            pkg_install $RHEL_PKGS
 
-            $SUDO "$PKG_MGR" install -y ansible-core 2>/dev/null \
-                || $SUDO "$PKG_MGR" install -y ansible \
-                || echo "  ! ansible/ansible-core indisponible, à installer manuellement"
+            if has_group iac; then
+                $SUDO "$PKG_MGR" install -y ansible-core 2>/dev/null \
+                    || $SUDO "$PKG_MGR" install -y ansible \
+                    || echo "  ! ansible/ansible-core indisponible, à installer manuellement"
+            fi
             ;;
         *)
             echo
@@ -304,17 +631,19 @@ fi
 
 # ---------------------------------------------------------------------------
 # Outils en binaire (Starship, Sheldon et les outils additionnels), installés
-# dans ~/.local/bin : ne nécessite PAS de droits root, fonctionne sur Debian
-# comme sur RHEL-like. Si le paquet système est déjà présent (ex: apt sur
-# Debian), l'outil est détecté et l'étape est ignorée.
+# dans BIN_DIR (~/.local/bin, ou le dossier donné par --bin-dir) : ne
+# nécessite PAS de droits root, fonctionne sur Debian comme sur RHEL-like.
+# Si le paquet système est déjà présent (ex: apt sur Debian), l'outil est
+# détecté et l'étape est ignorée.
+#
+# Un binaire déjà posé dans BIN_DIR est remplacé quand tools.lock désigne une
+# autre archive que celle installée (suivi dans ~/.config/dotfiles/tools.installed) :
+# relancer --tools, ou --upgrade, met donc à jour ce qui est en place.
 #
 # La liste des outils est dans tools.list. La version exacte de chacun et la
 # somme SHA-256 de son archive sont figées dans tools.lock (régénéré par
 # ./update-tools.sh) : aucune archive n'est installée sans vérification.
 # ---------------------------------------------------------------------------
-
-LIST_FILE="$DOTFILES_DIR/tools.list"
-LOCK_FILE="$DOTFILES_DIR/tools.lock"
 
 # install_binary_release <commande> [nom_binaire] [motif_chemin]
 #   nom_binaire  : nom du binaire dans l'archive (défaut : <commande>)
@@ -323,8 +652,10 @@ LOCK_FILE="$DOTFILES_DIR/tools.lock"
 # Ne fait jamais échouer le script : tout problème est signalé puis ignoré.
 install_binary_release() {
     local name="$1" bin_name="${2:-$1}" path_glob="${3:-*}"
-    command -v "$name" >/dev/null 2>&1 && return 0
-    [ -x "$HOME/.local/bin/$bin_name" ] && return 0
+    # Présent ailleurs que dans BIN_DIR : fourni par le système, on n'y touche pas
+    if [ ! -x "$BIN_DIR/$bin_name" ] && tool_present "$name"; then
+        return 0
+    fi
 
     if [ -z "$ARCH_KEY" ]; then
         echo "  ! $name : architecture $(uname -m) non gérée, à installer manuellement"
@@ -338,6 +669,11 @@ install_binary_release() {
     sha256=${entry##*|}
     if [ -z "$entry" ] || [ -z "$url" ] || [ -z "$sha256" ]; then
         echo "  ! $name : pas de version figée pour $ARCH_KEY dans tools.lock (lance ./update-tools.sh $name)"
+        return 0
+    fi
+
+    # Déjà dans BIN_DIR, à la version de tools.lock : rien à faire
+    if [ -x "$BIN_DIR/$bin_name" ] && grep -qxF "$name|$url" "$INSTALLED_FILE" 2>/dev/null; then
         return 0
     fi
 
@@ -389,39 +725,55 @@ install_binary_release() {
     if [ -z "$bin_path" ]; then
         echo "  ! $name : binaire '$bin_name' introuvable dans l'archive téléchargée"
     else
-        install -m755 "$bin_path" "$HOME/.local/bin/$bin_name"
-        echo "  -> $name installé dans ~/.local/bin"
+        install -m755 "$bin_path" "$BIN_DIR/$bin_name"
+        mkdir -p "$(dirname "$INSTALLED_FILE")"
+        { grep -v "^$name|" "$INSTALLED_FILE" 2>/dev/null || true; echo "$name|$url"; } > "$INSTALLED_FILE.tmp"
+        mv "$INSTALLED_FILE.tmp" "$INSTALLED_FILE"
+        echo "  -> $name installé dans $BIN_DIR"
     fi
     rm -rf "$tmpdir"
 }
 
 echo
-echo "==> Installation des outils en binaire (versions figées dans tools.lock, ~/.local/bin)"
+echo "==> Installation des outils en binaire (versions figées dans tools.lock, $BIN_DIR)"
 if ! command -v sha256sum >/dev/null 2>&1; then
     echo "  ! 'sha256sum' est requis pour vérifier les archives : aucun binaire installé"
 else
     while IFS='|' read -r tool group _repo _pattern tool_bin tool_glob <&3; do
         case "$tool" in ''|\#*) continue ;; esac
-        [ "$group" = "secu" ] && [ "$SKIP_SECURITY" -eq 1 ] && continue
+        has_group "$group" || continue
         install_binary_release "$tool" "${tool_bin:-$tool}" "${tool_glob//\{RUST\}/$ARCH_RUST}"
     done 3< "$LIST_FILE"
 fi
 
+# Les binaires fraîchement installés ne sont pas forcément dans le PATH courant
+export PATH="$BIN_DIR:$HOME/.local/bin:$PATH"
+
+# git vient peut-être d'être installé : l'inclusion des alias se fait maintenant
+setup_git_include
+
 echo
 echo "==> Verrouillage des plugins Sheldon"
-"$HOME/.local/bin/sheldon" lock --update 2>/dev/null \
-    || sheldon lock --update \
-    || echo "  ! 'sheldon lock' a échoué (réseau/proxy ?), relance-le manuellement"
+if ! command -v zsh >/dev/null 2>&1; then
+    echo "  -> ignoré : zsh absent (les plugins ne servent qu'à zsh)"
+elif ! command -v sheldon >/dev/null 2>&1; then
+    echo "  ! sheldon absent : plugins zsh non installés"
+else
+    sheldon lock --update \
+        || echo "  ! 'sheldon lock' a échoué (réseau/proxy ?), relance-le manuellement"
+fi
 
 echo
 echo "==> Pré-installation des plugins WezTerm (cache local, voir wezterm/README.md)"
 if [ "$IS_WSL" -eq 1 ]; then
     echo "  -> ignoré dans WSL : WezTerm (côté Windows) clone ses plugins lui-même au premier lancement"
+elif ! command -v wezterm >/dev/null 2>&1 && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    echo "  -> ignoré : pas de WezTerm ni de session graphique sur cette machine"
 else
     "$DOTFILES_DIR/wezterm/plugins.sh" || echo "  ! Certains plugins WezTerm n'ont pas pu être clonés (réseau/proxy git ?)"
 fi
 
-if [ "$SKIP_SECURITY" -eq 0 ]; then
+if has_group secu; then
     echo
     echo "==> SecLists (wordlists)"
     SECLISTS_DIR="$HOME/tools/SecLists"
@@ -439,31 +791,23 @@ fi
 # Récapitulatif
 # ---------------------------------------------------------------------------
 
-# Les binaires fraîchement installés ne sont pas forcément dans le PATH courant
-export PATH="$HOME/.local/bin:$PATH"
-
 echo
 echo "==> Récapitulatif"
-MISSING=""
-# bat/fd/httpie ont des noms de binaire différents selon la distro
-# (batcat/fdfind sur Debian, bat/fd sur RHEL-like) : on accepte les deux.
-SEC_CMDS=""
-[ "$SKIP_SECURITY" -eq 0 ] && SEC_CMDS="lynis nmap gobuster rustscan nuclei"
-for cmd in zsh eza rg fzf zoxide btop tmux lazygit \
-    direnv ansible gping delta glow vim xclip \
-    lazydocker k9s dive tenv dysk git starship sheldon $SEC_CMDS; do
-    command -v "$cmd" >/dev/null 2>&1 || MISSING="$MISSING $cmd"
-done
-command -v bat >/dev/null 2>&1 || command -v batcat >/dev/null 2>&1 || MISSING="$MISSING bat"
-command -v fd  >/dev/null 2>&1 || command -v fdfind  >/dev/null 2>&1 || MISSING="$MISSING fd"
-command -v http >/dev/null 2>&1 || MISSING="$MISSING httpie"
+report_tools || echo "  (normal sans root pour ceux qui n'existent qu'en paquet : voir README.md)"
 
-if [ -n "$MISSING" ]; then
-    echo "  Outils absents (non installés automatiquement, à voir manuellement) :"
-    echo "   $MISSING"
-    echo "  (normal sur RHEL-like ou sans root pour certains : voir README.md)"
-else
-    echo "  Tous les outils de la stack sont présents."
+if [ "$BIN_DIR" != "$HOME/.local/bin" ]; then
+    echo
+    echo "  Binaires installés dans $BIN_DIR : ce dossier est ajouté au PATH par"
+    echo "  ~/.shell/env (choix mémorisé dans $STATE_FILE)."
+fi
+
+if ! command -v zsh >/dev/null 2>&1; then
+    echo
+    if [ -L "$HOME/.bashrc" ]; then
+        echo "  zsh absent : la config bash (~/.bashrc) est en place."
+    else
+        echo "  zsh absent : relance avec '--bash' pour mettre en place la config bash."
+    fi
 fi
 
 if command -v zsh >/dev/null 2>&1 && [ "$(basename "${SHELL:-}")" != "zsh" ]; then

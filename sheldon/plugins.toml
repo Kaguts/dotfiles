@@ -18,6 +18,23 @@ inline = 'autoload -Uz compinit && compinit'
 [plugins.fzf-tab]
 github = "Aloxaf/fzf-tab"
 
+# Raccourcis fzf : Ctrl-R (historique), Ctrl-T (fichiers), Alt-C (dossiers).
+# Après fzf-tab : fzf reprend Tab pour `**` et lui rend la main sinon.
+[plugins.fzf]
+inline = '''
+if command -v fzf >/dev/null 2>&1; then
+    if fzf --zsh >/dev/null 2>&1; then
+        source <(fzf --zsh)
+    else
+        # fzf < 0.48 : raccourcis fournis par le paquet (Debian, puis RHEL-like)
+        for _f in /usr/share/doc/fzf/examples/key-bindings.zsh /usr/share/fzf/shell/key-bindings.zsh; do
+            [ -f "$_f" ] && source "$_f" && break
+        done
+        unset _f
+    fi
+fi
+'''
+
 [plugins.zsh-autosuggestions]
 github = "zsh-users/zsh-autosuggestions"
 use = ["{{ name }}.zsh"]
@@ -32,8 +49,16 @@ use = ["{{ name }}.zsh"]
 [plugins.starship]
 inline = 'command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"'
 
+# `cd` devient zoxide : il retient les dossiers visités (`cd proj` y saute,
+# `cdi` ouvre un choix interactif). Hors shell interactif et dans Claude Code,
+# `cd` reste la commande native et zoxide garde ses noms `z` / `zi`.
 [plugins.zoxide]
-inline = 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"'
-
-[plugins.direnv]
-inline = 'command -v direnv >/dev/null 2>&1 && eval "$(direnv hook zsh)"'
+inline = '''
+if command -v zoxide >/dev/null 2>&1; then
+    if [[ -o interactive && -z "${CLAUDECODE:-}" ]]; then
+        eval "$(zoxide init zsh --cmd cd)"
+    else
+        eval "$(zoxide init zsh)"
+    fi
+fi
+'''

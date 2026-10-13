@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Dépôt public : refuse le commit si une information propre à la machine
+# (IP, nom de serveur, chemin personnel, clé) s'est glissée dans les fichiers.
+# Activé par install.sh (git config core.hooksPath .githooks).
+exec "$(git rev-parse --show-toplevel)/tests/check-leaks.sh"
