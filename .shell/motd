@@ -1,87 +1,483 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# motd — message d'accueil du shell : machine, charge, mémoire, disques, réseau, état.
+# Bash seul (>= 4.2) et les outils de base du système : rien à installer,
+# aucun droit root nécessaire. Ce qui n'est pas disponible est simplement omis.
+#
+# Options : --demo (données fictives), --no-color, --help.
 
-# Fonction pour générer la barre de progression
-print_bar() {
-    local used_percentage=$1
-    local total_blocks=10
-    local used_blocks=$((used_percentage * total_blocks / 100))
-    local empty_blocks=$((total_blocks - used_blocks))
+shopt -s extglob
 
-    bar="["
-    for ((i=0; i<used_blocks; i++)); do
-        bar+="|"
-    done
-    for ((i=0; i<empty_blocks; i++)); do
-        bar+="."
-    done
-    bar+="]"
+DELAI=1                       # délai maximal d'une commande externe, en secondes
+CACHE_MAJ_S=$((6 * 3600))     # durée de validité du nombre de mises à jour
+SEUIL_ORANGE=70
+SEUIL_ROUGE=90
 
-    echo "$bar"
+demo=0
+sans_couleur=0
+for arg in "$@"; do
+    case "$arg" in
+        --demo) demo=1 ;;
+        --no-color) sans_couleur=1 ;;
+        -h|--help)
+            echo "Usage : motd [--demo] [--no-color]"
+            echo "  --demo      données fictives (pour voir les seuils orange et rouge)"
+            echo "  --no-color  sortie sans couleur (comme la variable NO_COLOR)"
+            exit 0
+            ;;
+    esac
+done
+
+# --- Jeu de caractères et couleurs -------------------------------------------
+
+# Les longueurs sont comptées en caractères : il faut une locale UTF-8. Sur un
+# serveur resté en locale C, on tente C.UTF-8, sinon on se replie sur de l'ASCII.
+essai='é'
+if [ ${#essai} -ne 1 ]; then
+    { unset LC_ALL; LC_CTYPE=C.UTF-8; } 2>/dev/null
+fi
+if [ ${#essai} -eq 1 ]; then
+    C_HG='╭' C_HD='╮' C_BG='╰' C_BD='╯' C_MG='├' C_MD='┤' C_H='─' C_V='│'
+    PLEIN='█' VIDE='░' PUCE='●' SEP=' · ' ELLIPSE='…'
+    T_MEM='Mémoire' T_RESEAU='Réseau' T_ETAT='État' T_COEUR='cœur' T_UNITE='unité'
+    T_ECHEC='en échec' T_REDEMARRAGE='redémarrage requis' T_A_JOUR='à jour'
+    T_MAJ='mise à jour' T_MAJS='mises à jour'
+else
+    C_HG='+' C_HD='+' C_BG='+' C_BD='+' C_MG='+' C_MD='+' C_H='-' C_V='|'
+    PLEIN='#' VIDE='-' PUCE='*' SEP=' - ' ELLIPSE='~'
+    T_MEM='Memoire' T_RESEAU='Reseau' T_ETAT='Etat' T_COEUR='coeur' T_UNITE='unite'
+    T_ECHEC='en echec' T_REDEMARRAGE='redemarrage requis' T_A_JOUR='a jour'
+    T_MAJ='mise a jour' T_MAJS='mises a jour'
+fi
+
+V='' O='' R='' G='' S='' C='' Z=''
+vraies_couleurs=0
+if [ "$sans_couleur" -eq 0 ] && [ -z "${NO_COLOR+x}" ] && { [ -t 1 ] || [ -n "${FORCE_COLOR+x}" ]; }; then
+    V=$'\e[38;5;114m' O=$'\e[38;5;215m' R=$'\e[38;5;203m'
+    G=$'\e[38;5;245m' S=$'\e[38;5;238m' C=$'\e[1;38;5;80m' Z=$'\e[0m'
+    [ "$PLEIN" = '█' ] && PLEIN='━' VIDE='━'
+    case "${COLORTERM:-}" in *truecolor*|*24bit*) vraies_couleurs=1 ;; esac
+fi
+
+# --- Outils de mise en forme (le résultat est rendu dans REPLY) --------------
+
+longueur() {
+    local nu=${1//$'\e['*([0-9;])m/}
+    REPLY=${#nu}
 }
 
-# Séparateur
-separator="----------------------------------------"
+completer() {
+    longueur "$1"
+    local manque=$(($2 - REPLY))
+    ((manque < 0)) && manque=0
+    printf -v REPLY '%s%*s' "$1" "$manque" ''
+}
 
-# Date et heure actuelles
-current_date=$(date +"%A, %d %B %Y, %H:%M:%S")
+repeter() {
+    local n=$2
+    ((n < 0)) && n=0
+    printf -v REPLY '%*s' "$n" ''
+    REPLY=${REPLY// /$1}
+}
 
-# Nom du système
-hostname=$(hostname)
+tronquer() {
+    REPLY=$1
+    ((${#1} > $2)) && REPLY="${1:0:$(($2 - 1))}$ELLIPSE"
+}
 
-# Version de l'OS
-os_version=$(lsb_release -ds 2>/dev/null || grep '^PRETTY_NAME' /etc/os-release | cut -d= -f2 | tr -d '"')
+tronquer_debut() {
+    REPLY=$1
+    ((${#1} > $2)) && REPLY="$ELLIPSE${1: -$(($2 - 1))}"
+}
 
-# Temps de fonctionnement
-uptime=$(uptime -p)
+pluriel() {
+    REPLY="$1 $2"
+    (($1 > 1)) && REPLY+=s
+}
 
-# Informations sur les utilisateurs connectés
-users=$(who | wc -l)
+# Dégradé caractère par caractère entre deux couleurs.
+degrade() {
+    local texte=$1 n=${#1} i t sortie=''
+    if [ -z "$Z" ]; then REPLY=$texte; return; fi
+    if ((!vraies_couleurs)); then REPLY="$C$texte$Z"; return; fi
+    for ((i = 0; i < n; i++)); do
+        t=$((n > 1 ? i * 100 / (n - 1) : 0))
+        sortie+=$'\e[1;38;2;'"$((94 + 73 * t / 100));$((234 - 95 * t / 100));$((212 + 38 * t / 100))m${texte:i:1}"
+    done
+    REPLY="$sortie$Z"
+}
 
-# Charge du processeur
-load_avg=$(awk '{print $1, $2, $3}' /proc/loadavg)
+# Nombre à une décimale ($1 / $2), sans décimale à partir de 100.
+decimal() {
+    local x=$((($1 * 10 + $2 / 2) / $2))
+    if ((x >= 1000)); then
+        REPLY=$(((x + 5) / 10))
+    else
+        REPLY="$((x / 10)),$((x % 10))"
+    fi
+}
 
-# Mémoire libre
-memory_free=$(free -h | awk '/^Mem:/ {print $4"/"$2}')
+# « utilisé / total » (donnés en Kio), exprimés dans l'unité du total.
+occupation() {
+    local diviseur=1 unite=Kio utilise
+    if (($2 >= 1073741824)); then diviseur=1073741824 unite=Tio
+    elif (($2 >= 1048576)); then diviseur=1048576 unite=Gio
+    elif (($2 >= 1024)); then diviseur=1024 unite=Mio
+    fi
+    decimal "$1" "$diviseur"; utilise=$REPLY
+    decimal "$2" "$diviseur"
+    REPLY="$utilise / $REPLY $unite"
+}
 
-# Interfaces réseau actives et leurs adresses IP
-network_info=$(ip -o -4 addr show | awk '$2 != "lo" {print "Interface: "$2", IP: "$4}')
+duree() {
+    local j=$(($1 / 86400)) h=$(($1 % 86400 / 3600)) m=$(($1 % 3600 / 60))
+    if ((j)); then REPLY="$j j $h h"
+    elif ((h)); then REPLY="$h h $m min"
+    else REPLY="$m min"
+    fi
+}
 
-# Affichage du message MOTD
+# --- Collecte ----------------------------------------------------------------
 
-# Zone 1 : Bienvenue
-echo -e "$separator"
-echo -e "🖥️  Bienvenue sur $hostname"
-echo -e "$separator"
+existe() { command -v "$1" >/dev/null 2>&1; }
 
-# Zone 2 : CPU + Mémoire
-echo -e "📊 Charge CPU (1, 5, 15 min) : $load_avg"
-echo -e "🧠 Mémoire : $memory_free"
-echo -e "$separator"
+# Lance une commande sans jamais bloquer l'ouverture du shell.
+court() {
+    if existe timeout; then timeout "$DELAI" "$@"; else "$@"; fi
+}
 
-# Zone 3 : Système, Date, Uptime, Utilisateurs connectés
-echo -e "📅 Date : $current_date"
-echo -e "🖥️  Système : $os_version"
-echo -e "⏱️  Temps de fonctionnement : $uptime"
-echo -e "👥 Utilisateurs connectés : $users"
-echo -e "$separator"
+D_POINT=() D_TOTAL=() D_UTILISE=() RESEAU=() ECHECS=()
+systemd=0 maj='' redemarrage=0 conteneurs=0 sessions=0
+swap_total=0 swap_utilise=0
 
-# Zone 4 : Réseau
-echo -e "🌐 Réseau :"
-echo -e "$network_info"
-echo -e "$separator"
+# Nombre de mises à jour : calcul lent, donc lu dans un cache rafraîchi en
+# arrière-plan. Le fichier contient le nombre, sa date de modification fait foi.
+dossier_cache="${XDG_CACHE_HOME:-$HOME/.cache}/motd"
 
-# Zone 5 : Espace des disques
-echo -e "💽 Disques :"
-if command -v dysk >/dev/null 2>&1; then
-    dysk
-else
-    df -h -x tmpfs -x devtmpfs -x squashfs -x overlay --output=target,used,size,pcent 2>/dev/null \
-        | tail -n +2 \
-        | while read -r mount used size pcent; do
-            pct=$(echo "$pcent" | tr -d '%')
-            bar=$(print_bar "$pct")
-            printf "  %-20s %6s / %-6s %s %s\n" "$mount" "$used" "$size" "$bar" "$pcent"
+rafraichir_cache() {
+    local n='' sortie code
+    if existe apt; then
+        n=$(LC_ALL=C apt list --upgradable 2>/dev/null | grep -c /)
+    elif existe dnf; then
+        sortie=$(LC_ALL=C dnf -q check-update 2>/dev/null)
+        code=$?
+        # 0 : rien à mettre à jour ; 100 : des mises à jour ; autre : échec
+        if [ "$code" -eq 0 ] || [ "$code" -eq 100 ]; then
+            n=$(printf '%s\n' "$sortie" | awk 'NF == 0 { exit } NF == 3 { n++ } END { print n + 0 }')
+        fi
+    fi
+    [[ $n =~ ^[0-9]+$ ]] || return
+    printf '%s\n' "$n" > "$dossier_cache/maj.tmp" && mv "$dossier_cache/maj.tmp" "$dossier_cache/maj"
+}
+
+mises_a_jour() {
+    local fichier="$dossier_cache/maj" essai="$dossier_cache/essai" maintenant age=-1
+    printf -v maintenant '%(%s)T' -1
+    if [ -r "$fichier" ]; then
+        read -r maj < "$fichier"
+        [[ $maj =~ ^[0-9]+$ ]] || maj=''
+        age=$((maintenant - $(stat -c %Y "$fichier" 2>/dev/null || echo 0)))
+    fi
+    ((age >= 0 && age <= CACHE_MAJ_S)) && return
+    # Pas plus d'une tentative toutes les dix minutes
+    if [ -e "$essai" ] && ((maintenant - $(stat -c %Y "$essai" 2>/dev/null || echo 0) < 600)); then
+        return
+    fi
+    mkdir -p "$dossier_cache" 2>/dev/null || return
+    : > "$essai" 2>/dev/null || return
+    (rafraichir_cache &) </dev/null >/dev/null 2>&1
+}
+
+collecter() {
+    local fd_df fd_systemd fd_docker cle valeur ligne
+
+    # Commandes externes lancées d'abord : elles tournent pendant la lecture de /proc.
+    exec {fd_df}< <(court df -PkT -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs 2>/dev/null)
+    if [ -d /run/systemd/system ] && existe systemctl; then
+        systemd=1
+        exec {fd_systemd}< <(court systemctl --failed --no-legend --plain --no-pager 2>/dev/null)
+    fi
+    if existe docker; then
+        exec {fd_docker}< <(court docker ps -q 2>/dev/null)
+    fi
+
+    hote=${HOSTNAME:-$(hostname 2>/dev/null)}
+    systeme=Linux
+    if [ -r /etc/os-release ]; then
+        while IFS='=' read -r cle valeur; do
+            [ "$cle" = PRETTY_NAME ] || continue
+            valeur=${valeur#\"}
+            systeme=${valeur%\"}
+        done < /etc/os-release
+    fi
+    read -r noyau < /proc/sys/kernel/osrelease
+    if ! coeurs=$(nproc 2>/dev/null); then
+        coeurs=0
+        while read -r cle _; do
+            [ "$cle" = processor ] && coeurs=$((coeurs + 1))
+        done < /proc/cpuinfo
+        ((coeurs)) || coeurs=1
+    fi
+    read -r uptime_s _ < /proc/uptime
+    uptime_s=${uptime_s%%.*}
+    read -r charge_1 charge_5 charge_15 _ < /proc/loadavg
+
+    local mem_dispo=0 swap_libre=0
+    while read -r cle valeur _; do
+        case "$cle" in
+            MemTotal:) mem_total=$valeur ;;
+            MemAvailable:) mem_dispo=$valeur ;;
+            SwapTotal:) swap_total=$valeur ;;
+            SwapFree:) swap_libre=$valeur ;;
+        esac
+    done < /proc/meminfo
+    mem_utilise=$((mem_total - mem_dispo))
+    swap_utilise=$((swap_total - swap_libre))
+
+    local vus=' ' source utilise libre point
+    while read -r source _ _ utilise libre _ point; do
+        [[ $utilise =~ ^[0-9]+$ && $libre =~ ^[0-9]+$ ]] || continue   # ligne d'en-tête
+        ((utilise + libre > 0)) || continue
+        # Sous-volumes : une seule ligne par périphérique ; la partition EFI n'apporte rien.
+        [[ $vus == *" $source "* || $point == /boot/efi ]] && continue
+        vus+="$source "
+        D_POINT+=("$point") D_TOTAL+=($((utilise + libre))) D_UTILISE+=("$utilise")
+        ((${#D_POINT[@]} >= 8)) && break
+    done <&"$fd_df"
+    exec {fd_df}<&-
+
+    local nom adresse
+    if existe ip; then
+        while read -r _ nom _ adresse _; do
+            case "$nom" in
+                lo|docker*|br-*|veth*|virbr*|cni*|flannel*|cali*|lxc*|podman*) continue ;;
+            esac
+            RESEAU+=("$nom ${adresse%%/*}")
+        done < <(court ip -o -4 addr show 2>/dev/null)
+    else
+        for adresse in $(hostname -I 2>/dev/null); do
+            [[ $adresse == *.* ]] && RESEAU+=("$adresse")
         done
-fi
-echo -e "$separator"
+    fi
 
+    if ((systemd)); then
+        while read -r nom _; do
+            [ -n "$nom" ] && ECHECS+=("$nom")
+        done <&"$fd_systemd"
+        exec {fd_systemd}<&-
+    fi
+    if [ -n "${fd_docker:-}" ]; then
+        while read -r ligne; do
+            [ -n "$ligne" ] && conteneurs=$((conteneurs + 1))
+        done <&"$fd_docker"
+        exec {fd_docker}<&-
+    fi
+    while read -r ligne; do
+        [ -n "$ligne" ] && sessions=$((sessions + 1))
+    done < <(who 2>/dev/null)
+    [ -e /run/reboot-required ] && redemarrage=1
+    mises_a_jour
+}
+
+donnees_demo() {
+    local gio=1048576
+    hote=serveur-demo
+    systeme='Debian GNU/Linux 13 (trixie)'
+    noyau=6.12.0-amd64
+    coeurs=8
+    uptime_s=$((23 * 86400 + 7 * 3600))
+    charge_1=7.36 charge_5=5.10 charge_15=3.42
+    mem_total=$((32 * gio)) mem_utilise=$((25 * gio))
+    swap_total=$((4 * gio)) swap_utilise=$((gio * 4 / 10))
+    D_POINT=(/ /data /var/lib/docker/volumes)
+    D_TOTAL=($((50 * gio)) $((1800 * gio)) $((200 * gio)))
+    D_UTILISE=($((21 * gio)) $((1430 * gio)) $((187 * gio)))
+    RESEAU=('eth0 1.2.3.4')
+    systemd=1
+    ECHECS=(exemple.service sauvegarde.timer)
+    maj=14 redemarrage=1 conteneurs=12 sessions=2
+}
+
+# --- Rendu -------------------------------------------------------------------
+
+J_NOM=() J_PCT=() J_DETAIL=()   # jauges : libellé, pourcentage, détail
+E_TEXTE=() E_TEINTE=()          # éléments à répartir sur des lignes
+LIGNES=()                       # résultat de jauges() et de replier()
+
+jauge() {
+    J_NOM+=("$1") J_PCT+=("$2") J_DETAIL+=("$3")
+}
+
+element() {
+    E_TEINTE+=("$1") E_TEXTE+=("$2")
+}
+
+# Lignes « libellé  barre  pourcentage  détail » pour les jauges $1 à $1+$2-1,
+# alignées sur la largeur $3.
+jauges() {
+    local debut=$1 fin=$(($1 + $2)) largeur=$3 i l_nom=0 l_detail=0 l_barre
+    local pct borne teinte remplis nom plein vide chiffre detail ligne
+    LIGNES=()
+    for ((i = debut; i < fin; i++)); do
+        ((${#J_NOM[i]} > l_nom)) && l_nom=${#J_NOM[i]}
+        ((${#J_DETAIL[i]} > l_detail)) && l_detail=${#J_DETAIL[i]}
+    done
+    ((l_nom > 12)) && l_nom=12
+    l_barre=$((largeur - l_nom - 7 - 2 - l_detail))
+    if ((l_barre < 6)); then      # trop étroit : on sacrifie le détail
+        l_detail=0
+        l_barre=$((largeur - l_nom - 7))
+    fi
+    ((l_barre > 40)) && l_barre=40
+    ((l_barre < 4)) && l_barre=4
+    for ((i = debut; i < fin; i++)); do
+        pct=${J_PCT[i]}
+        ((pct > 999)) && pct=999
+        borne=$((pct > 100 ? 100 : pct))
+        if ((pct >= SEUIL_ROUGE)); then teinte=$R
+        elif ((pct >= SEUIL_ORANGE)); then teinte=$O
+        else teinte=$V
+        fi
+        remplis=$(((borne * l_barre + 50) / 100))
+        tronquer_debut "${J_NOM[i]}" "$l_nom"; completer "$REPLY" "$l_nom"; nom=$REPLY
+        repeter "$PLEIN" "$remplis"; plein=$REPLY
+        repeter "$VIDE" $((l_barre - remplis)); vide=$REPLY
+        printf -v chiffre '%3d %%' "$pct"
+        ligne="$nom $teinte$plein$Z$S$vide$Z $teinte$chiffre$Z"
+        if ((l_detail)); then
+            printf -v detail '%-*s' "$l_detail" "${J_DETAIL[i]}"
+            ligne+="  $G$detail$Z"
+        fi
+        LIGNES+=("$ligne")
+    done
+}
+
+# Répartit les éléments E_TEXTE / E_TEINTE sur des lignes de largeur $1,
+# séparés par $2.
+replier() {
+    local largeur=$1 sep=$2 i texte besoin ligne='' occupe=0
+    LIGNES=()
+    for i in "${!E_TEXTE[@]}"; do
+        tronquer "${E_TEXTE[i]}" "$largeur"; texte=$REPLY
+        besoin=${#texte}
+        ((occupe)) && besoin=$((besoin + ${#sep}))
+        if ((occupe && occupe + besoin > largeur)); then
+            LIGNES+=("$ligne")
+            ligne='' occupe=0 besoin=${#texte}
+        fi
+        ((occupe)) && ligne+="$S$sep$Z"
+        ligne+="${E_TEINTE[i]}$texte$Z"
+        occupe=$((occupe + besoin))
+    done
+    ((occupe)) && LIGNES+=("$ligne")
+    E_TEXTE=() E_TEINTE=()
+}
+
+afficher() {
+    local colonnes=${COLUMNS:-} total interieur ligne i
+    local -a sortie=()
+
+    if [ -t 1 ]; then
+        read -r _ colonnes < <(stty size 2>/dev/null)
+    fi
+    [[ $colonnes =~ ^[0-9]+$ ]] || colonnes=80
+    total=$((colonnes > 96 ? 96 : colonnes))
+    ((total < 40)) && total=40
+    interieur=$((total - 4))
+
+    cadre() { repeter "$C_H" $((total - 2)); sortie+=("$S$1$REPLY$2$Z"); }
+    contenu() { completer "$1" "$interieur"; sortie+=("$S$C_V$Z $REPLY $S$C_V$Z"); }
+
+    # En-tête
+    cadre "$C_HG" "$C_HD"
+    tronquer "$hote" "$interieur"; degrade "$REPLY"; contenu "$REPLY"
+    element "$G" "$systeme"
+    element "$G" "noyau $noyau"
+    pluriel "$coeurs" "$T_COEUR"; element "$G" "$REPLY"
+    duree "$uptime_s"; element "$G" "actif depuis $REPLY"
+    printf -v ligne '%(%A %-d %B, %H:%M)T' -1
+    element "$G" "${ligne^}"
+    replier "$interieur" "$SEP"
+    for ligne in "${LIGNES[@]}"; do contenu "$ligne"; done
+
+    # Jauges : système à gauche, disques à droite si la place le permet
+    cadre "$C_MG" "$C_MD"
+    local centiemes=${charge_1/./}
+    jauge CPU $((10#$centiemes / coeurs)) "$charge_1 $charge_5 $charge_15"
+    occupation "$mem_utilise" "$mem_total"
+    jauge "$T_MEM" $((mem_utilise * 100 / mem_total)) "$REPLY"
+    if ((swap_total > 0)); then
+        occupation "$swap_utilise" "$swap_total"
+        jauge Swap $((swap_utilise * 100 / swap_total)) "$REPLY"
+    fi
+    local n_systeme=${#J_NOM[@]} n_disques=${#D_POINT[@]}
+    for i in "${!D_POINT[@]}"; do
+        occupation "${D_UTILISE[i]}" "${D_TOTAL[i]}"
+        jauge "${D_POINT[i]}" $((D_UTILISE[i] * 100 / D_TOTAL[i])) "$REPLY"
+    done
+
+    if ((total >= 80 && n_disques)); then
+        local ecart=3 l_gauche=$(((interieur - 3) / 2)) n
+        local -a gauche droite
+        jauges 0 "$n_systeme" "$l_gauche"; gauche=("${LIGNES[@]}")
+        jauges "$n_systeme" "$n_disques" $((interieur - ecart - l_gauche)); droite=("${LIGNES[@]}")
+        n=$((n_systeme > n_disques ? n_systeme : n_disques))
+        for ((i = 0; i < n; i++)); do
+            completer "${gauche[i]:-}" $((l_gauche + ecart))
+            contenu "$REPLY${droite[i]:-}"
+        done
+    else
+        jauges 0 $((n_systeme + n_disques)) "$interieur"
+        for ligne in "${LIGNES[@]}"; do contenu "$ligne"; done
+    fi
+
+    # Réseau et état
+    local retrait=8 titre
+    local -a pied=()
+    rubrique() {
+        titre=$1
+        replier $((interieur - retrait)) "$2"
+        for ligne in "${LIGNES[@]}"; do
+            completer "$titre" "$retrait"
+            pied+=("$G$REPLY$Z$ligne")
+            titre=''
+        done
+    }
+    for ligne in "${RESEAU[@]}"; do element '' "$ligne"; done
+    rubrique "$T_RESEAU" "$SEP"
+
+    if ((${#ECHECS[@]})); then
+        pluriel "${#ECHECS[@]}" "$T_UNITE"
+        ligne="$PUCE $REPLY $T_ECHEC : ${ECHECS[0]}"
+        for i in 1 2; do
+            [ -n "${ECHECS[i]:-}" ] && ligne+=", ${ECHECS[i]}"
+        done
+        ((${#ECHECS[@]} > 3)) && ligne+=$ELLIPSE
+        element "$R" "$ligne"
+    elif ((systemd)); then
+        element "$V" "$PUCE services OK"
+    fi
+    ((redemarrage)) && element "$O" "$PUCE $T_REDEMARRAGE"
+    if [ "$maj" = 0 ]; then element "$V" "$PUCE $T_A_JOUR"
+    elif [ "$maj" = 1 ]; then element "$O" "$PUCE 1 $T_MAJ"
+    elif [ -n "$maj" ]; then element "$O" "$PUCE $maj $T_MAJS"
+    fi
+    if ((conteneurs)); then pluriel "$conteneurs" conteneur; element "$G" "$PUCE $REPLY"; fi
+    if ((sessions)); then pluriel "$sessions" session; element "$G" "$PUCE $REPLY"; fi
+    rubrique "$T_ETAT" '  '
+
+    if ((${#pied[@]})); then
+        cadre "$C_MG" "$C_MD"
+        for ligne in "${pied[@]}"; do contenu "$ligne"; done
+    fi
+    cadre "$C_BG" "$C_BD"
+    printf '%s\n' "${sortie[@]}"
+}
+
+# --- Entrée ------------------------------------------------------------------
+
+if ((demo)); then donnees_demo; else collecter; fi
+# Un message d'accueil ne doit jamais gêner l'ouverture du shell :
+# les erreurs ne s'affichent qu'avec MOTD_DEBUG=1.
+if [ -n "${MOTD_DEBUG:-}" ]; then afficher; else afficher 2>/dev/null; fi
+exit 0
