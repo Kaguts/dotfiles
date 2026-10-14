@@ -439,7 +439,9 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
         src="$DOTFILES_DIR/${entry%%:*}"
         rel="${entry#*:}"
         dest="$HOME/$rel"
-        [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] || continue
+        if [ ! -L "$dest" ] || [ "$(readlink "$dest")" != "$src" ]; then
+            continue
+        fi
         rm "$dest"
         echo "Retiré     : $dest"
         # Version d'origine la plus récente (les dossiers sont datés), sauf un
