@@ -16,7 +16,9 @@
 #     ou dans le dossier donné par --bin-dir.
 #
 # Usage :
-#   ./install.sh            # liens symboliques uniquement
+#   ./install.sh            # liens symboliques, puis liste des outils absents
+#                            # (starship, sheldon...) et propose de les
+#                            # installer si le terminal est interactif
 #   ./install.sh --update   # recrée les liens symboliques (utile après avoir
 #                            # déplacé/renommé le dossier du repo) et nettoie
 #                            # les anciennes références dans ~/.gitconfig
@@ -45,6 +47,11 @@
 #                            # avec --tools : binaires seulement, sans apt/dnf
 #   ./install.sh --check    # ne modifie rien : contrôle les liens, la config
 #                            # git, le PATH, les outils et les alias
+#   ./install.sh --uninstall
+#                            # retire les liens vers le dépôt et l'inclusion
+#                            # des alias git, remet les fichiers d'origine les
+#                            # plus récents de ~/.dotfiles_backup ; laisse en
+#                            # place les binaires (liste affichée)
 #   ./install.sh --wezterm-windows
 #                            # (WSL) copie la config WezTerm dans le profil
 #                            # Windows ; combinable avec les autres options
@@ -56,7 +63,8 @@
 set -euo pipefail
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="$HOME/.dotfiles_backup/$(date +%Y%m%d-%H%M%S)"
+BACKUP_ROOT="$HOME/.dotfiles_backup"
+BACKUP_DIR="$BACKUP_ROOT/$(date +%Y%m%d-%H%M%S)"
 
 usage() {
     sed -n '/^# Usage :/,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -77,6 +85,7 @@ DO_TOOLS=0
 DO_BASH=0
 DO_CHECK=0
 DO_UPGRADE=0
+DO_UNINSTALL=0
 SKIP_PACKAGES=0
 NO_ROOT=0
 DO_WEZTERM_WINDOWS=0
@@ -136,6 +145,7 @@ while [ $# -gt 0 ]; do
         --upgrade)         DO_UPGRADE=1 ;;
         --skip-packages)   SKIP_PACKAGES=1 ;;
         --check)           DO_CHECK=1 ;;
+        --uninstall)       DO_UNINSTALL=1 ;;
         --wezterm-windows) DO_WEZTERM_WINDOWS=1 ;;
         -h|--help)         usage; exit 0 ;;
         *)                 echo "Option inconnue : $1" >&2; usage >&2; exit 2 ;;
@@ -389,7 +399,27 @@ if [ "$DO_CHECK" -eq 1 ]; then
     if "$DOTFILES_DIR/tests/check-aliases.sh"; then ok "chaque alias lance une commande existante"; else problems=$((problems + 1)); fi
 
     echo "==> Outils"
+    manque=""
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || manque="$manque curl"
+    for cmd in tar gzip sha256sum; do command -v "$cmd" >/dev/null 2>&1 || manque="$manque $cmd"; done
+    if [ -n "$manque" ]; then
+        bad "prérequis de --tools absents :$manque"
+    else
+        ok "prérequis de --tools présents (téléchargement, tar, gzip, sha256sum)"
+    fi
     report_tools || problems=$((problems + 1))
+
+    echo "==> Sauvegardes"
+    vieilles=0
+    if [ -d "$BACKUP_ROOT" ]; then
+        vieilles=$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +30 | wc -l)
+    fi
+    if [ "$vieilles" -gt 0 ]; then
+        echo "  --   $vieilles sauvegarde(s) de plus de 30 jours dans $BACKUP_ROOT : à supprimer"
+        echo "       à la main si tout va bien (--uninstall s'en sert pour remettre les fichiers)"
+    else
+        ok "aucune sauvegarde de plus de 30 jours"
+    fi
 
     echo
     if [ "$problems" -eq 0 ]; then
@@ -398,6 +428,47 @@ if [ "$DO_CHECK" -eq 1 ]; then
     fi
     echo "$problems point(s) à corriger."
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# --uninstall : retire ce que le script a mis en place dans $HOME
+# ---------------------------------------------------------------------------
+if [ "$DO_UNINSTALL" -eq 1 ]; then
+    echo "==> Retrait des liens vers le dépôt"
+    for entry in "${LINKS[@]}" ".bashrc:.bashrc"; do
+        src="$DOTFILES_DIR/${entry%%:*}"
+        rel="${entry#*:}"
+        dest="$HOME/$rel"
+        [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] || continue
+        rm "$dest"
+        echo "Retiré     : $dest"
+        # Version d'origine la plus récente (les dossiers sont datés), sauf un
+        # ancien lien vers le dépôt ou un lien cassé
+        while IFS= read -r d; do
+            b="$d/$rel"
+            [ -e "$b" ] || continue
+            case "$(readlink "$b" 2>/dev/null || true)" in "$DOTFILES_DIR"/*) continue ;; esac
+            cp -a "$b" "$dest"
+            echo "Remis      : $dest (depuis $b)"
+            break
+        done < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
+    done
+
+    if command -v git >/dev/null 2>&1 \
+        && git config --global --get-all include.path 2>/dev/null | grep -qxF "$GIT_ALIASES"; then
+        git config --global --fixed-value --unset-all include.path "$GIT_ALIASES"
+        echo "Retiré     : include.path = $GIT_ALIASES dans ~/.gitconfig"
+    fi
+
+    if [ -s "$INSTALLED_FILE" ]; then
+        echo
+        echo "Binaires installés par le dépôt, laissés dans $BIN_DIR :"
+        echo "  $(cut -d'|' -f1 "$INSTALLED_FILE" | tr '\n' ' ')"
+        echo "  pour les retirer : cd \"$BIN_DIR\" && rm $(cut -d'|' -f1 "$INSTALLED_FILE" | tr '\n' ' ')"
+    fi
+    echo
+    echo "Terminé. Le dépôt lui-même ($DOTFILES_DIR) n'est pas supprimé."
+    exit 0
 fi
 
 # Requis par `set undofile` / `set undodir` dans .vimrc
@@ -464,8 +535,10 @@ setup_git_include() {
 setup_git_include
 
 # Dépôt public : le hook pre-commit refuse un commit qui contiendrait une
-# information propre à la machine (voir tests/check-leaks.sh)
-if command -v git >/dev/null 2>&1 && [ -d "$DOTFILES_DIR/.git" ] \
+# information propre à la machine (voir tests/check-leaks.sh). git refuse un
+# dépôt appartenant à un autre compte (root sur le clone d'un utilisateur) :
+# le hook est alors laissé de côté plutôt que d'arrêter l'installation.
+if command -v git >/dev/null 2>&1 && git -C "$DOTFILES_DIR" rev-parse --git-dir >/dev/null 2>&1 \
     && [ "$(git -C "$DOTFILES_DIR" config --local core.hooksPath 2>/dev/null || true)" != ".githooks" ]; then
     git -C "$DOTFILES_DIR" config --local core.hooksPath .githooks
     echo "Activé     : hook pre-commit du dépôt (contrôle anti-fuite)"
@@ -489,11 +562,24 @@ if [ "$DO_TOOLS" -eq 0 ]; then
     echo
     if [ "$DO_UPDATE" -eq 1 ]; then
         echo "Liens symboliques et configuration git mis à jour."
-    else
-        echo "Astuce : relance avec '--tools' pour installer les outils CLI de la stack,"
-        echo "         ou avec '--check' pour contrôler l'installation."
+        exit 0
     fi
-    exit 0
+    echo "==> Outils de la stack"
+    if report_tools; then
+        exit 0
+    fi
+    # Sans terminal (script, CI), on se contente de la liste
+    reponse=""
+    if [ -t 0 ] && [ -t 1 ]; then
+        read -r -p "  Installer maintenant les outils manquants (comme --tools) ? [o/N] " reponse || reponse=""
+    fi
+    case "$reponse" in
+        [oOyY]*) DO_TOOLS=1 ;;
+        *)
+            echo "  Relance avec '--tools' pour les installer, ou '--check' pour contrôler l'installation."
+            exit 0
+            ;;
+    esac
 fi
 
 # ---------------------------------------------------------------------------
@@ -649,6 +735,15 @@ fi
 #   nom_binaire  : nom du binaire dans l'archive (défaut : <commande>)
 #   motif_chemin : motif `find -path` pour choisir le bon binaire quand
 #                  l'archive en contient plusieurs (une par architecture)
+# telecharger <url> <fichier> : curl, ou wget sur les systèmes minimaux
+telecharger() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$1" -o "$2"
+    else
+        wget -q -O "$2" "$1"
+    fi
+}
+
 # Ne fait jamais échouer le script : tout problème est signalé puis ignoré.
 install_binary_release() {
     local name="$1" bin_name="${2:-$1}" path_glob="${3:-*}"
@@ -680,7 +775,7 @@ install_binary_release() {
     local tmpdir
     tmpdir=$(mktemp -d)
     echo "  -> $name : $url"
-    if ! curl -fsSL "$url" -o "$tmpdir/archive"; then
+    if ! telecharger "$url" "$tmpdir/archive"; then
         echo "  ! $name : téléchargement impossible"
         rm -rf "$tmpdir"
         return 0
@@ -736,8 +831,20 @@ install_binary_release() {
 
 echo
 echo "==> Installation des outils en binaire (versions figées dans tools.lock, $BIN_DIR)"
-if ! command -v sha256sum >/dev/null 2>&1; then
-    echo "  ! 'sha256sum' est requis pour vérifier les archives : aucun binaire installé"
+# Prérequis vérifiés une fois ici, plutôt qu'une erreur par outil plus bas
+prerequis=""
+command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || prerequis="$prerequis curl"
+for cmd in tar gzip sha256sum; do
+    command -v "$cmd" >/dev/null 2>&1 || prerequis="$prerequis $cmd"
+done
+if [ -n "$prerequis" ]; then
+    echo "  ! Prérequis absents :$prerequis ; aucun binaire installé (starship, sheldon...)"
+    case "$PKG_FAMILY" in
+        debian) echo "    à installer : sudo apt-get install${prerequis/sha256sum/coreutils}" ;;
+        rhel)   echo "    à installer : sudo $PKG_MGR install${prerequis/sha256sum/coreutils}" ;;
+        *)      echo "    à installer avec le gestionnaire de paquets du système" ;;
+    esac
+    echo "    puis relance : ./install.sh --tools"
 else
     while IFS='|' read -r tool group _repo _pattern tool_bin tool_glob <&3; do
         case "$tool" in ''|\#*) continue ;; esac

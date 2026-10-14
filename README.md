@@ -36,10 +36,10 @@ sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
 ## Installation sur une nouvelle machine
 
 ```bash
-git clone https://github.com/Kaguts/dotefiles.git ~/dotfiles
+git clone https://github.com/Kaguts/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 
-# Liens symboliques uniquement
+# Liens symboliques ; liste les outils absents et propose de les installer
 ./install.sh
 
 # Liens symboliques + outils du groupe "base" (shell, prompt, eza, bat, fzf...)
@@ -50,7 +50,13 @@ cd ~/dotfiles
 
 # Contrôler l'installation sans rien modifier
 ./install.sh --check
+
+# Tout retirer (liens, alias git) et remettre les fichiers d'origine
+./install.sh --uninstall
 ```
+
+`--tools` a besoin de `curl` (ou `wget`), `tar`, `gzip` et `sha256sum`.
+S'il en manque un, il le dit et n'installe aucun binaire.
 
 ### Groupes d'outils
 
