@@ -132,7 +132,8 @@ supplémentaires sont disponibles via [git/aliases.gitconfig](git/aliases.gitcon
 - `glow <fichier.md>` — affiche un Markdown formaté dans le terminal (`glow .` pour parcourir un dossier ; groupe `extra`)
 - `dysk` — utilisation disque sous forme de tableau coloré (alternative à `df`).
 - `~/.shell/motd` — message d'accueil affiché à l'ouverture du shell : charge,
-  mémoire, disques, réseau, unités systemd en échec, mises à jour en attente.
+  mémoire, disques, réseau, connexion précédente (date et provenance),
+  température du processeur, unités systemd en échec, mises à jour en attente.
   Bash seul, sans droit root ; ce qui n'est pas disponible sur la machine est
   omis. `~/.shell/motd --demo` montre les seuils orange et rouge avec des
   données fictives, `--no-color` (ou `NO_COLOR=1`) coupe les couleurs.

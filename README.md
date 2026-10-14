@@ -9,6 +9,10 @@ sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
 👉 Pour l'utilisation au quotidien (alias, raccourcis, prompt...), voir [USAGE.md](USAGE.md).
 👉 Pour un pense-bête condensé (raccourcis WezTerm/tmux, alias...), voir [TIPS.md](TIPS.md).
 
+![Message d'accueil du shell : jauges de charge, mémoire et disques, réseau, dernière connexion et état de la machine](docs/motd.png)
+
+*Message d'accueil ([.shell/motd](.shell/motd)), ici avec `--demo`.*
+
 ## Structure
 
 - [.zshrc](.zshrc) — config Zsh, plugins gérés par [Sheldon](https://github.com/rossmacarthur/sheldon)
@@ -19,7 +23,7 @@ sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
   - `env` — environnement commun à zsh et bash (PATH, éditeur, nvm à la demande)
   - `alias` — alias et fonctions, communs à zsh et bash (eza, docker, git, serveurs...)
   - `alias_srv.example` — modèle pour tes alias locaux en plus (non versionnés)
-  - `motd` — message d'accueil du shell (charge, mémoire, disques, réseau, état ; bash seul, sans droit root)
+  - `motd` — message d'accueil du shell (charge, mémoire, disques, réseau, dernière connexion, état ; bash seul, sans droit root)
   - `add_srv.sh` — ajoute un serveur dans `~/.ssh/config` (alias `addsrv`)
 - [sheldon/](sheldon/) — gestionnaire de plugins Zsh (voir [sheldon/README.md](sheldon/README.md))
 - [starship.toml](starship.toml) — prompt Starship orienté DevOps/sécu (git, Docker, k8s, AWS, Terraform, Python venv)

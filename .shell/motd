@@ -4,6 +4,9 @@
 # Bash seul (>= 4.2) et les outils de base du système : rien à installer,
 # aucun droit root nécessaire. Ce qui n'est pas disponible est simplement omis.
 #
+# Affiche : système, charge, mémoire, disques, réseau, dernière connexion,
+# température, unités systemd en échec, mises à jour, conteneurs, sessions.
+#
 # Options : --demo (données fictives), --no-color, --help.
 
 shopt -s extglob
@@ -12,6 +15,8 @@ DELAI=1                       # délai maximal d'une commande externe, en second
 CACHE_MAJ_S=$((6 * 3600))     # durée de validité du nombre de mises à jour
 SEUIL_ORANGE=70
 SEUIL_ROUGE=90
+TEMP_ORANGE=70                # température du processeur, en °C
+TEMP_ROUGE=85
 
 demo=0
 sans_couleur=0
@@ -42,12 +47,14 @@ if [ ${#essai} -eq 1 ]; then
     T_MEM='Mémoire' T_RESEAU='Réseau' T_ETAT='État' T_COEUR='cœur' T_UNITE='unité'
     T_ECHEC='en échec' T_REDEMARRAGE='redémarrage requis' T_A_JOUR='à jour'
     T_MAJ='mise à jour' T_MAJS='mises à jour'
+    T_ACCES='Accès' T_DERNIERE='dernière connexion le' T_A='à'
 else
     C_HG='+' C_HD='+' C_BG='+' C_BD='+' C_MG='+' C_MD='+' C_H='-' C_V='|'
     PLEIN='#' VIDE='-' PUCE='*' SEP=' - ' ELLIPSE='~'
     T_MEM='Memoire' T_RESEAU='Reseau' T_ETAT='Etat' T_COEUR='coeur' T_UNITE='unite'
     T_ECHEC='en echec' T_REDEMARRAGE='redemarrage requis' T_A_JOUR='a jour'
     T_MAJ='mise a jour' T_MAJS='mises a jour'
+    T_ACCES='Acces' T_DERNIERE='derniere connexion le' T_A='a'
 fi
 
 V='' O='' R='' G='' S='' C='' Z=''
@@ -149,6 +156,7 @@ court() {
 D_POINT=() D_TOTAL=() D_UTILISE=() RESEAU=() ECHECS=()
 systemd=0 maj='' redemarrage=0 conteneurs=0 sessions=0
 swap_total=0 swap_utilise=0
+temperature='' derniere_date='' derniere_heure='' derniere_origine=''
 
 # Nombre de mises à jour : calcul lent, donc lu dans un cache rafraîchi en
 # arrière-plan. Le fichier contient le nombre, sa date de modification fait foi.
@@ -186,6 +194,57 @@ mises_a_jour() {
     mkdir -p "$dossier_cache" 2>/dev/null || return
     : > "$essai" 2>/dev/null || return
     (rafraichir_cache &) </dev/null >/dev/null 2>&1
+}
+
+# Température du processeur, en °C : capteur dédié s'il existe, sinon la zone
+# thermique la plus chaude. Rien sur une machine virtuelle ou un conteneur.
+temperature_cpu() {
+    local dossier nom valeur max=0
+    for dossier in /sys/class/hwmon/hwmon*; do
+        [ -r "$dossier/name" ] && [ -r "$dossier/temp1_input" ] || continue
+        read -r nom < "$dossier/name"
+        case "$nom" in
+            coretemp|k10temp|zenpower|cpu_thermal|cpu-thermal)
+                { read -r valeur < "$dossier/temp1_input"; } 2>/dev/null
+                [[ $valeur =~ ^[0-9]+$ ]] && ((valeur > max)) && max=$valeur
+                ;;
+        esac
+    done
+    if ((max == 0)); then
+        for dossier in /sys/class/thermal/thermal_zone*; do
+            [ -r "$dossier/temp" ] || continue
+            { read -r valeur < "$dossier/temp"; } 2>/dev/null
+            [[ $valeur =~ ^[0-9]+$ ]] && ((valeur > max)) && max=$valeur
+        done
+    fi
+    ((max >= 1000 && max < 150000)) && temperature=$((max / 1000))
+}
+
+# Connexion précédente de l'utilisateur, d'après le journal du système
+# (lisible sans droit root). La plus récente est la session en cours : on
+# prend la suivante.
+derniere_connexion() {
+    existe last || return
+    local rang=0 i moment
+    local -a champs
+    while read -r -a champs; do
+        [ "${champs[1]:-}" = begins ] && continue
+        for i in 2 3; do
+            [[ ${champs[i]:-} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2} ]] || continue
+            rang=$((rang + 1))
+            if ((rang == 2)); then
+                moment=${champs[i]}
+                derniere_date="${moment:8:2}/${moment:5:2}"
+                derniere_heure=${moment:11:5}
+                # Colonne d'origine présente : connexion distante ; sinon le terminal
+                if ((i == 3)); then derniere_origine="depuis ${champs[2]}"
+                else derniere_origine="sur ${champs[1]}"
+                fi
+                return
+            fi
+            break
+        done
+    done < <(court last -n 2 --time-format iso "${USER:-$(id -un)}" 2>/dev/null)
 }
 
 collecter() {
@@ -276,6 +335,8 @@ collecter() {
         [ -n "$ligne" ] && sessions=$((sessions + 1))
     done < <(who 2>/dev/null)
     [ -e /run/reboot-required ] && redemarrage=1
+    temperature_cpu
+    derniere_connexion
     mises_a_jour
 }
 
@@ -296,6 +357,8 @@ donnees_demo() {
     systemd=1
     ECHECS=(exemple.service sauvegarde.timer)
     maj=14 redemarrage=1 conteneurs=12 sessions=2
+    temperature=74
+    derniere_date=12/10 derniere_heure=22:14 derniere_origine='depuis 1.2.3.4'
 }
 
 # --- Rendu -------------------------------------------------------------------
@@ -445,6 +508,10 @@ afficher() {
     }
     for ligne in "${RESEAU[@]}"; do element '' "$ligne"; done
     rubrique "$T_RESEAU" "$SEP"
+    if [ -n "$derniere_date" ]; then
+        element '' "$T_DERNIERE $derniere_date $T_A $derniere_heure $derniere_origine"
+        rubrique "$T_ACCES" "$SEP"
+    fi
 
     if ((${#ECHECS[@]})); then
         pluriel "${#ECHECS[@]}" "$T_UNITE"
@@ -456,6 +523,13 @@ afficher() {
         element "$R" "$ligne"
     elif ((systemd)); then
         element "$V" "$PUCE services OK"
+    fi
+    if [ -n "$temperature" ]; then
+        if ((temperature >= TEMP_ROUGE)); then ligne=$R
+        elif ((temperature >= TEMP_ORANGE)); then ligne=$O
+        else ligne=$G
+        fi
+        element "$ligne" "$PUCE $temperature °C"
     fi
     ((redemarrage)) && element "$O" "$PUCE $T_REDEMARRAGE"
     if [ "$maj" = 0 ]; then element "$V" "$PUCE $T_A_JOUR"
