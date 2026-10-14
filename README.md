@@ -32,6 +32,7 @@ sur Debian/Ubuntu, RHEL-like (RHEL, Rocky, Alma, Fedora) et Windows via WSL.
 - [install.sh](install.sh) — bootstrap : crée les liens symboliques, installe les outils, contrôle l'installation (`--check`)
 - [tests/check-aliases.sh](tests/check-aliases.sh) — vérifie que chaque alias lance une commande qui existe
 - [tests/check-leaks.sh](tests/check-leaks.sh) — vérifie qu'aucune information personnelle n'entre dans ce dépôt public
+- [tests/check-motd.sh](tests/check-motd.sh) — rejoue de vraies sorties de apt et dnf ([tests/fixtures/maj/](tests/fixtures/maj/)) pour vérifier le comptage des mises à jour du motd
 
 ## Installation sur une nouvelle machine
 
@@ -126,7 +127,12 @@ Pour désactiver le contrôle quotidien : `touch ~/.config/dotfiles/no-update-ch
 dépôt en ligne, lien symbolique cassé,
 `include.path` git qui pointe dans le vide, dossier des binaires hors du
 `PATH`, plugins Sheldon non installés, alias sans cible, outil manquant dans
-un groupe demandé. Code retour 1 s'il reste un point à corriger.
+un groupe demandé, prérequis de `--tools` absents (`curl` ou `wget`, `tar`,
+`gzip`, `sha256sum`). Code retour 1 s'il reste un point à corriger.
+
+Il mentionne aussi, sans les compter comme des erreurs, les sauvegardes de
+plus de 30 jours dans `~/.dotfiles_backup` : à supprimer à la main si tout
+va bien, puisque `--uninstall` s'en sert pour remettre les fichiers d'origine.
 
 ### Mettre à jour les liens (dépôt déplacé/renommé)
 
@@ -278,12 +284,41 @@ ensuite, pas qu'elle était saine au départ.
 ## Intégration continue
 
 À chaque push, [.github/workflows/lint.yml](.github/workflows/lint.yml) lance
-ShellCheck sur les scripts et `.bashrc`, vérifie la syntaxe Zsh et Bash des
-fichiers de shell, contrôle que chaque alias lance une commande qui existe
-([tests/check-aliases.sh](tests/check-aliases.sh)), qu'aucune adresse IP, clé
-ou chemin personnel n'est présent ([tests/check-leaks.sh](tests/check-leaks.sh))
-et que chaque outil de
-`tools.list` a bien une version figée par architecture dans `tools.lock`.
+deux jobs.
+
+**`shell`** : ShellCheck sur les scripts et `.bashrc`, syntaxe Zsh et Bash des
+fichiers de shell, comptage des mises à jour du motd
+([tests/check-motd.sh](tests/check-motd.sh)), alias qui lancent une commande
+existante ([tests/check-aliases.sh](tests/check-aliases.sh)), aucune adresse
+IP, clé ou chemin personnel ([tests/check-leaks.sh](tests/check-leaks.sh)), et
+une version figée par architecture dans `tools.lock` pour chaque outil de
+`tools.list`.
+
+**`install`** : une vraie installation, dans un conteneur jetable, sur
+Debian 13, Ubuntu 24.04 et Rocky Linux 9 (x86_64), et sur Debian 13 en arm64 :
+
+1. `./install.sh --tools` en root, paquets système compris ;
+2. `./install.sh --check`, qui doit répondre « Tout est en ordre » ;
+3. ouverture de zsh sans erreur ;
+4. avec un compte sans droits root : `--no-root --tools` par-dessus un
+   `~/.zshrc` existant, `--check` qui doit signaler une vieille sauvegarde,
+   puis `--uninstall`, qui doit remettre le `~/.zshrc` d'origine.
+
+ShellCheck de la CI est celui d'Ubuntu (0.9), plus strict sur certains
+avertissements que la dernière version. Pour le reproduire en local :
+
+```bash
+docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.9.0 -s bash install.sh .shell/motd
+```
+
+### Pourquoi GitHub Actions
+
+Le dépôt est public et hébergé sur GitHub : la CI y tourne sans rien
+installer, sur des machines jetables (les tests installent des paquets et
+téléchargent des binaires), et GitHub fournit gratuitement des machines arm64
+aux dépôts publics, ce qui permet de tester les deux architectures. Un
+`.gitlab-ci.yml` sur un GitLab auto-hébergé lancerait les mêmes scripts, mais
+demanderait un runner à entretenir, et arm64 resterait sans machine de test.
 
 ## Applis de référence
 
