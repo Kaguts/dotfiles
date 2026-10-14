@@ -11,13 +11,14 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: ShellCheck
         run: |
           shellcheck -s bash install.sh update-tools.sh wezterm/plugins.sh \
             .shell/add_srv.sh .shell/motd .bashrc .shell/update-check \
-            tests/check-aliases.sh tests/check-leaks.sh .githooks/pre-commit
+            tests/check-aliases.sh tests/check-leaks.sh tests/check-motd.sh \
+            .githooks/pre-commit
 
       - name: Syntaxe Zsh
         run: |
@@ -33,6 +34,9 @@ jobs:
           bash -n .bashrc
           bash -n .shell/alias
           bash -n .shell/env
+
+      - name: Comptage des mises à jour du motd (apt, dnf4, dnf5)
+        run: tests/check-motd.sh
 
       - name: Alias sans cible
         run: tests/check-aliases.sh
@@ -55,3 +59,65 @@ jobs:
             done
           done < tools.list
           exit $status
+
+  # Installation réelle, sur les familles de distribution prises en charge et
+  # sur arm64 : ce que ShellCheck ne voit pas (sorties de apt/dnf, archives
+  # par architecture, retour en arrière).
+  install:
+    name: Installation (${{ matrix.image }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "debian:13",    arch: x86_64, runner: ubuntu-latest }
+          - { image: "ubuntu:24.04", arch: x86_64, runner: ubuntu-latest }
+          - { image: "rockylinux:9", arch: x86_64, runner: ubuntu-latest }
+          - { image: "debian:13",    arch: arm64,  runner: ubuntu-24.04-arm }
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: git (requis par le dépôt et par --upgrade)
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq && apt-get install -y -qq git
+          else
+            dnf install -y -q git
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Installation complète (root, paquets système compris)
+        run: |
+          git config --global --add safe.directory "$PWD"
+          ./install.sh --tools < /dev/null
+
+      - name: Contrôle de l'installation
+        run: PATH="$HOME/.local/bin:$PATH" ./install.sh --check
+
+      - name: zsh s'ouvre sans erreur
+        run: zsh -ic 'echo ok' 2>&1 | tee /tmp/zsh.log && ! grep -iE 'error|erreur|not found' /tmp/zsh.log
+
+      - name: Sans root, puis --uninstall
+        run: |
+          useradd -m testeur
+          dest="$(getent passwd testeur | cut -d: -f6)/dotfiles"
+          cp -a "$PWD" "$dest"
+          chown -R testeur: "$dest"
+          su testeur -s /bin/bash -c '
+            set -eu
+            cd ~/dotfiles
+            echo "# zshrc d origine" > ~/.zshrc
+            ./install.sh --no-root --tools < /dev/null
+            [ -L ~/.zshrc ]
+            # Une sauvegarde ancienne doit être signalée par --check
+            mkdir -p ~/.dotfiles_backup/20200101-000000
+            touch -d "2020-01-01" ~/.dotfiles_backup/20200101-000000
+            PATH="$HOME/.local/bin:$PATH" ./install.sh --check | grep "plus de 30 jours dans" || exit 1
+            ./install.sh --uninstall
+            [ ! -L ~/.zshrc ] && grep -q "zshrc d origine" ~/.zshrc
+            [ ! -e ~/.shell ]
+            ! git config --global --get-all include.path
+          '
