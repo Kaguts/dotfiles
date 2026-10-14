@@ -201,7 +201,7 @@ mises_a_jour() {
 temperature_cpu() {
     local dossier nom valeur max=0
     for dossier in /sys/class/hwmon/hwmon*; do
-        [ -r "$dossier/name" ] && [ -r "$dossier/temp1_input" ] || continue
+        if [ ! -r "$dossier/name" ] || [ ! -r "$dossier/temp1_input" ]; then continue; fi
         read -r nom < "$dossier/name"
         case "$nom" in
             coretemp|k10temp|zenpower|cpu_thermal|cpu-thermal)
