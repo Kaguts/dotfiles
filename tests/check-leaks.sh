@@ -25,8 +25,9 @@ GENERIC_OK='/home/(user|invite|utilisateur)/'
 words=()
 add_word() {
     # Ignore les valeurs trop courtes ou banales, sources de faux positifs
+    # (runner : compte des machines de la CI GitHub, mot employé par lint.yml)
     case "$1" in
-        ''|?|??|root|git|admin|user|localhost|debian|ubuntu) return ;;
+        ''|?|??|root|git|admin|user|runner|localhost|debian|ubuntu) return ;;
     esac
     words+=("$1")
 }
