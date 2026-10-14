@@ -20,10 +20,13 @@ TEMP_ROUGE=85
 
 demo=0
 sans_couleur=0
+compter_maj=''
 for arg in "$@"; do
     case "$arg" in
         --demo) demo=1 ;;
         --no-color) sans_couleur=1 ;;
+        # Pour tests/check-motd.sh : compte les mises à jour lues sur l'entrée
+        --compter-maj=*) compter_maj=${arg#*=} ;;
         -h|--help)
             echo "Usage : motd [--demo] [--no-color]"
             echo "  --demo      données fictives (pour voir les seuils orange et rouge)"
@@ -162,16 +165,33 @@ temperature='' derniere_date='' derniere_heure='' derniere_origine=''
 # arrière-plan. Le fichier contient le nombre, sa date de modification fait foi.
 dossier_cache="${XDG_CACHE_HOME:-$HOME/.cache}/motd"
 
+# Sortie de `apt list --upgradable` : une ligne « paquet/dépôt ... » par paquet
+compter_apt() { grep -c /; }
+
+# Sortie de `dnf -q check-update`. dnf4 ouvre sa liste par une ligne vide et
+# coupe les noms longs sur deux lignes (la suite commence par des espaces) ;
+# la ligne vide suivante annonce les paquets rendus obsolètes, non comptés.
+compter_dnf() {
+    awk 'NF == 0 { if (n) exit; next } /^[^ \t]/ && $1 ~ /\./ { n++ } END { print n + 0 }'
+}
+
+case "$compter_maj" in
+    '') ;;
+    apt) compter_apt; exit 0 ;;
+    dnf) compter_dnf; exit 0 ;;
+    *) echo "--compter-maj : apt ou dnf" >&2; exit 2 ;;
+esac
+
 rafraichir_cache() {
     local n='' sortie code
     if existe apt; then
-        n=$(LC_ALL=C apt list --upgradable 2>/dev/null | grep -c /)
+        n=$(LC_ALL=C apt list --upgradable 2>/dev/null | compter_apt)
     elif existe dnf; then
         sortie=$(LC_ALL=C dnf -q check-update 2>/dev/null)
         code=$?
         # 0 : rien à mettre à jour ; 100 : des mises à jour ; autre : échec
         if [ "$code" -eq 0 ] || [ "$code" -eq 100 ]; then
-            n=$(printf '%s\n' "$sortie" | awk 'NF == 0 { exit } NF == 3 { n++ } END { print n + 0 }')
+            n=$(printf '%s\n' "$sortie" | compter_dnf)
         fi
     fi
     [[ $n =~ ^[0-9]+$ ]] || return

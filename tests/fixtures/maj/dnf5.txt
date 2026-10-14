@@ -1,0 +1,3 @@
+elfutils-default-yama-scope.noarch       0.195-1.fc42     updates
+elfutils-libelf.x86_64                   0.195-1.fc42     updates
+elfutils-libs.x86_64                     0.195-1.fc42     updates
